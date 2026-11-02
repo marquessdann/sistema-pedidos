@@ -1,0 +1,719 @@
+// Sistema de Pedidos Della — modelo relacional (PostgreSQL)
+// Valores monetários: inteiros em centavos (sufixo Cents).
+// Percentuais: inteiros em pontos-base (sufixo Bps; 100 bps = 1%).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  SELLER
+}
+
+enum ClientStatus {
+  PENDING_REGISTRATION
+  UNDER_REVIEW
+  ACTIVE
+  BLOCKED
+  INACTIVE
+}
+
+enum OrderStatus {
+  DRAFT
+  CREATED
+  PENDING_APPROVAL
+  APPROVED
+  AWAITING_PICKING
+  PICKING
+  AWAITING_SHIPMENT
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  AWAITING_RESPONSE
+  APPROVED_BY_CLIENT
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum ApprovalStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RuleKind {
+  SURCHARGE
+  INTERNAL_ESTIMATE
+}
+
+enum RuleBase {
+  GROSS
+  NET
+}
+
+enum RuleScope {
+  ALL
+  BRAND
+  CATEGORY
+  PRODUCT
+}
+
+enum StockMovementType {
+  IN
+  ADJUST
+  RESERVE
+  RELEASE
+  OUT
+  RETURN
+}
+
+enum StockPolicy {
+  ON_APPROVAL
+  ON_PICKING
+  ON_SHIPMENT
+}
+
+enum ConversionPricePolicy {
+  KEEP_QUOTE_PRICES
+  USE_CURRENT_PRICES
+}
+
+enum DocumentKind {
+  ORDER_PDF
+  QUOTE_PDF
+}
+
+// ---------------------------------------------------------------------------
+// Usuários, sessões e representantes
+// ---------------------------------------------------------------------------
+
+model User {
+  id                 String    @id @default(uuid()) @db.Uuid
+  username           String    @unique
+  passwordHash       String
+  name               String
+  role               Role
+  active             Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  salesRep       SalesRep?
+  sessions       Session[]
+  auditLogs      AuditLog[]
+  statusChanges  OrderStatusHistory[]
+  quoteChanges   QuoteStatusHistory[]
+  decidedApprovals DiscountApproval[] @relation("ApprovalDecider")
+  stockMovements StockMovement[]
+  documents      GeneratedDocument[]
+
+  @@map("users")
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  tokenHash  String   @unique
+  csrfToken  String
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model SalesRep {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @unique @db.Uuid
+  user                User      @relation(fields: [userId], references: [id])
+  fullName            String
+  title               String    @default("Representante comercial")
+  cpf                 String?   @unique
+  phone               String?
+  contactPhone        String?
+  email               String?
+  commissionBps       Int?
+  maxDiscountBps      Int       @default(0)
+  /// Permissão expressa para consultar pedidos/orçamentos de outros vendedores.
+  canViewAllOrders    Boolean   @default(false)
+  /// Permissão expressa para visualizar custo/margem no catálogo.
+  canViewCost         Boolean   @default(false)
+  /// Permissão para ver total de compras do cliente.
+  canViewClientTotals Boolean   @default(true)
+  /// Permissão para ver e-mail financeiro do cliente.
+  canViewFinanceContact Boolean @default(false)
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  clients   Client[]
+  orders    Order[]
+  quotes    Quote[]
+  approvals DiscountApproval[]
+
+  @@map("sales_representatives")
+}
+
+// ---------------------------------------------------------------------------
+// Clientes
+// ---------------------------------------------------------------------------
+
+model Client {
+  id                String       @id @default(uuid()) @db.Uuid
+  legalName         String
+  tradeName         String?
+  /// CNPJ normalizado (somente 0-9A-Z, 14 caracteres)
+  cnpj              String       @unique
+  stateRegistration String?
+  responsibleName   String?
+  financeEmail      String?
+  financePhone      String?
+  commercialPhone   String?
+  commercialEmail   String?
+  cep               String?
+  state             String?      @db.Char(2)
+  city              String?
+  district          String?
+  street            String?
+  number            String?
+  complement        String?
+  notes             String?
+  status            ClientStatus @default(PENDING_REGISTRATION)
+  salesRepId        String?      @db.Uuid
+  salesRep          SalesRep?    @relation(fields: [salesRepId], references: [id])
+  /// Quando verdadeiro, qualquer vendedor ativo pode atender este cliente.
+  availableToAllReps Boolean     @default(false)
+  createdById       String?      @db.Uuid
+  updatedById       String?      @db.Uuid
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+
+  orders Order[]
+  quotes Quote[]
+
+  @@index([status])
+  @@index([salesRepId])
+  @@index([legalName])
+  @@index([tradeName])
+  @@map("clients")
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo
+// ---------------------------------------------------------------------------
+
+model Brand {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  active    Boolean   @default(true)
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+  rules     PricingRule[]
+
+  @@map("brands")
+}
+
+model Category {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+  rules     PricingRule[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            String    @id @default(uuid()) @db.Uuid
+  sku           String    @unique
+  name          String
+  brandId       String    @db.Uuid
+  brand         Brand     @relation(fields: [brandId], references: [id])
+  categoryId    String?   @db.Uuid
+  category      Category? @relation(fields: [categoryId], references: [id])
+  description   String?
+  unit          String    @default("UN")
+  /// RESTRITO: custo do produto
+  costCents     Int       @default(0)
+  /// RESTRITO: percentual tributário de referência (estimativa comercial, não é alíquota fiscal definitiva)
+  taxRefBps     Int       @default(0)
+  /// Preço comercial autorizado (visível ao vendedor)
+  priceCents    Int
+  stockQty      Int       @default(0)
+  reservedQty   Int       @default(0)
+  active        Boolean   @default(true)
+  internalNotes String?
+  createdById   String?   @db.Uuid
+  updatedById   String?   @db.Uuid
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  images         ProductImage[]
+  orderItems     OrderItem[]
+  quoteItems     QuoteItem[]
+  stockMovements StockMovement[]
+  rules          PricingRule[]
+  priceHistory   ProductPriceHistory[]
+
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([name])
+  @@index([active])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @db.Uuid
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fileName  String
+  mimeType  String
+  isPrimary Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model ProductPriceHistory {
+  id             String   @id @default(uuid()) @db.Uuid
+  productId      String   @db.Uuid
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  oldPriceCents  Int?
+  newPriceCents  Int
+  oldCostCents   Int?
+  newCostCents   Int
+  changedById    String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  @@index([productId, createdAt])
+  @@map("product_price_history")
+}
+
+/// Regras de tributos/acréscimos configuráveis (pricing_rules / tax_rules).
+/// SURCHARGE: acréscimo cobrado do cliente e somado ao total.
+/// INTERNAL_ESTIMATE: tributo estimado apenas para cálculo interno de margem (não cobrado, não exibido ao cliente).
+model PricingRule {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  kind        RuleKind
+  base        RuleBase  @default(NET)
+  scope       RuleScope @default(ALL)
+  rateBps     Int
+  brandId     String?   @db.Uuid
+  brand       Brand?    @relation(fields: [brandId], references: [id])
+  categoryId  String?   @db.Uuid
+  category    Category? @relation(fields: [categoryId], references: [id])
+  productId   String?   @db.Uuid
+  product     Product?  @relation(fields: [productId], references: [id])
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("pricing_rules")
+}
+
+model PaymentTerm {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  /// Ex.: "30/60/90" (dias)
+  days      String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+  quotes Quote[]
+
+  @@map("payment_terms")
+}
+
+// ---------------------------------------------------------------------------
+// Pedidos
+// ---------------------------------------------------------------------------
+
+model Order {
+  id                   String         @id @default(uuid()) @db.Uuid
+  /// Gerado na confirmação (rascunhos não consomem numeração)
+  number               String?        @unique
+  /// Chave de idempotência enviada pelo navegador: impede pedidos duplicados em reenvios
+  idempotencyKey       String         @unique
+  status               OrderStatus    @default(DRAFT)
+  clientId             String         @db.Uuid
+  client               Client         @relation(fields: [clientId], references: [id])
+  salesRepId           String         @db.Uuid
+  salesRep             SalesRep       @relation(fields: [salesRepId], references: [id])
+  quoteId              String?        @db.Uuid
+  quote                Quote?         @relation("QuoteOrders", fields: [quoteId], references: [id])
+  orderDate            DateTime       @db.Date
+  expectedDelivery     DateTime?      @db.Date
+  paymentTermId        String?        @db.Uuid
+  paymentTerm          PaymentTerm?   @relation(fields: [paymentTermId], references: [id])
+  paymentTermName      String?
+  paymentDays          String?
+  notes                String?
+  grossCents           Int            @default(0)
+  itemDiscountCents    Int            @default(0)
+  generalDiscountBps   Int            @default(0)
+  generalDiscountCents Int            @default(0)
+  effectiveDiscountBps Int            @default(0)
+  surchargeCents       Int            @default(0)
+  freightCents         Int            @default(0)
+  totalCents           Int            @default(0)
+  totalQuantity        Int            @default(0)
+  /// RESTRITO
+  costCents            Int?
+  /// RESTRITO
+  internalTaxCents     Int            @default(0)
+  /// RESTRITO
+  marginCents          Int?
+  /// Memória de cálculo (explicação para o administrador). Os itens ficam em order_items.
+  calcSnapshot         Json?
+  discountApprovalStatus ApprovalStatus @default(NONE)
+  confirmedAt          DateTime?
+  cancelReason         String?
+  version              Int            @default(0)
+  createdById          String         @db.Uuid
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  approvals     DiscountApproval[]
+  documents     GeneratedDocument[]
+  stockMovements StockMovement[]
+  convertedFrom Quote?               @relation("QuoteConvertedOrder")
+
+  @@index([status])
+  @@index([clientId])
+  @@index([salesRepId])
+  @@index([orderDate])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                 String  @id @default(uuid()) @db.Uuid
+  orderId            String  @db.Uuid
+  order              Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId          String  @db.Uuid
+  product            Product @relation(fields: [productId], references: [id])
+  position           Int
+  // cópia dos dados comerciais no momento do registro
+  sku                String
+  productName        String
+  brandName          String
+  unit               String
+  imageFileName      String?
+  quantity           Int
+  unitPriceCents     Int
+  discountBps        Int     @default(0)
+  discountCents      Int     @default(0)
+  grossCents         Int
+  generalDiscountShareCents Int @default(0)
+  netCents           Int
+  surchargeCents     Int     @default(0)
+  /// RESTRITO
+  unitCostCents      Int?
+  /// RESTRITO
+  taxRefBps          Int?
+
+  @@unique([orderId, productId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id         String       @id @default(uuid()) @db.Uuid
+  orderId    String       @db.Uuid
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  note       String?
+  userId     String       @db.Uuid
+  user       User         @relation(fields: [userId], references: [id])
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
+}
+
+/// Transições de status permitidas (configuráveis pelo administrador).
+model OrderStatusTransition {
+  id         String      @id @default(uuid()) @db.Uuid
+  fromStatus OrderStatus
+  toStatus   OrderStatus
+
+  @@unique([fromStatus, toStatus])
+  @@map("order_status_transitions")
+}
+
+// ---------------------------------------------------------------------------
+// Orçamentos
+// ---------------------------------------------------------------------------
+
+model Quote {
+  id                   String         @id @default(uuid()) @db.Uuid
+  number               String         @unique
+  idempotencyKey       String         @unique
+  status               QuoteStatus    @default(DRAFT)
+  clientId             String         @db.Uuid
+  client               Client         @relation(fields: [clientId], references: [id])
+  salesRepId           String         @db.Uuid
+  salesRep             SalesRep       @relation(fields: [salesRepId], references: [id])
+  quoteDate            DateTime       @db.Date
+  validUntil           DateTime       @db.Date
+  expectedDelivery     DateTime?      @db.Date
+  paymentTermId        String?        @db.Uuid
+  paymentTerm          PaymentTerm?   @relation(fields: [paymentTermId], references: [id])
+  paymentTermName      String?
+  paymentDays          String?
+  notes                String?
+  grossCents           Int            @default(0)
+  itemDiscountCents    Int            @default(0)
+  generalDiscountBps   Int            @default(0)
+  generalDiscountCents Int            @default(0)
+  effectiveDiscountBps Int            @default(0)
+  surchargeCents       Int            @default(0)
+  freightCents         Int            @default(0)
+  totalCents           Int            @default(0)
+  totalQuantity        Int            @default(0)
+  costCents            Int?
+  internalTaxCents     Int            @default(0)
+  marginCents          Int?
+  calcSnapshot         Json?
+  discountApprovalStatus ApprovalStatus @default(NONE)
+  /// Pedido gerado a partir deste orçamento (impede conversão duplicada)
+  convertedOrderId     String?        @unique @db.Uuid
+  convertedOrder       Order?         @relation("QuoteConvertedOrder", fields: [convertedOrderId], references: [id])
+  convertedAt          DateTime?
+  version              Int            @default(0)
+  createdById          String         @db.Uuid
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  items         QuoteItem[]
+  statusHistory QuoteStatusHistory[]
+  approvals     DiscountApproval[]
+  documents     GeneratedDocument[]
+  orders        Order[]              @relation("QuoteOrders")
+
+  @@index([status])
+  @@index([clientId])
+  @@index([salesRepId])
+  @@index([quoteDate])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id                 String  @id @default(uuid()) @db.Uuid
+  quoteId            String  @db.Uuid
+  quote              Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  productId          String  @db.Uuid
+  product            Product @relation(fields: [productId], references: [id])
+  position           Int
+  sku                String
+  productName        String
+  brandName          String
+  unit               String
+  imageFileName      String?
+  quantity           Int
+  unitPriceCents     Int
+  discountBps        Int     @default(0)
+  discountCents      Int     @default(0)
+  grossCents         Int
+  generalDiscountShareCents Int @default(0)
+  netCents           Int
+  surchargeCents     Int     @default(0)
+  unitCostCents      Int?
+  taxRefBps          Int?
+
+  @@unique([quoteId, productId])
+  @@index([productId])
+  @@map("quote_items")
+}
+
+model QuoteStatusHistory {
+  id         String       @id @default(uuid()) @db.Uuid
+  quoteId    String       @db.Uuid
+  quote      Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  fromStatus QuoteStatus?
+  toStatus   QuoteStatus
+  note       String?
+  userId     String?      @db.Uuid
+  user       User?        @relation(fields: [userId], references: [id])
+  createdAt  DateTime     @default(now())
+
+  @@index([quoteId, createdAt])
+  @@map("quote_status_history")
+}
+
+// ---------------------------------------------------------------------------
+// Aprovações de desconto
+// ---------------------------------------------------------------------------
+
+model DiscountApproval {
+  id              String         @id @default(uuid()) @db.Uuid
+  orderId         String?        @db.Uuid
+  order           Order?         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quoteId         String?        @db.Uuid
+  quote           Quote?         @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  salesRepId      String         @db.Uuid
+  salesRep        SalesRep       @relation(fields: [salesRepId], references: [id])
+  requestedBps    Int
+  generalDiscountBps Int         @default(0)
+  maxItemDiscountBps Int         @default(0)
+  maxAllowedBps   Int
+  /// Total do documento no momento da solicitação (para conferência)
+  totalCents      Int
+  reason          String?
+  status          ApprovalStatus @default(PENDING)
+  decidedById     String?        @db.Uuid
+  decidedBy       User?          @relation("ApprovalDecider", fields: [decidedById], references: [id])
+  decidedAt       DateTime?
+  decisionNote    String?
+  createdAt       DateTime       @default(now())
+
+  @@index([status])
+  @@index([orderId])
+  @@index([quoteId])
+  @@map("discount_approvals")
+}
+
+// ---------------------------------------------------------------------------
+// Estoque
+// ---------------------------------------------------------------------------
+
+model StockMovement {
+  id        String            @id @default(uuid()) @db.Uuid
+  productId String            @db.Uuid
+  product   Product           @relation(fields: [productId], references: [id])
+  type      StockMovementType
+  /// Variação com sinal: no estoque físico (IN, ADJUST, OUT, RETURN) ou na reserva (RESERVE, RELEASE)
+  quantity  Int
+  stockAfter    Int
+  reservedAfter Int
+  orderId   String?           @db.Uuid
+  order     Order?            @relation(fields: [orderId], references: [id])
+  reason    String?
+  /// Impede movimentações duplicadas de um mesmo pedido (ex.: baixa duplicada)
+  dedupeKey String?           @unique
+  userId    String            @db.Uuid
+  user      User              @relation(fields: [userId], references: [id])
+  createdAt DateTime          @default(now())
+
+  @@index([productId, createdAt])
+  @@index([orderId])
+  @@map("stock_movements")
+}
+
+// ---------------------------------------------------------------------------
+// Auditoria, configurações, documentos, numeração
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  data      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model CompanySettings {
+  id                    Int                   @id @default(1)
+  companyName           String                @default("Della")
+  legalName             String?
+  cnpj                  String?
+  stateRegistration     String?
+  phone                 String?
+  email                 String?
+  website               String?
+  address               String?
+  logoFileName          String?
+  timezone              String                @default("America/Sao_Paulo")
+  quoteValidityDays     Int                   @default(15)
+  pdfFooterText         String?
+  quoteTerms            String?
+  allowItemDiscount     Boolean               @default(true)
+  allowSellerFreight    Boolean               @default(true)
+  conversionPricePolicy ConversionPricePolicy @default(KEEP_QUOTE_PRICES)
+  stockEnabled          Boolean               @default(false)
+  stockPolicy           StockPolicy           @default(ON_APPROVAL)
+  blockOnInsufficientStock Boolean            @default(true)
+  orderNumberPrefix     String                @default("PED")
+  quoteNumberPrefix     String                @default("ORC")
+  updatedAt             DateTime              @updatedAt
+  updatedById           String?               @db.Uuid
+
+  @@map("company_settings")
+}
+
+model GeneratedDocument {
+  id          String       @id @default(uuid()) @db.Uuid
+  kind        DocumentKind
+  orderId     String?      @db.Uuid
+  order       Order?       @relation(fields: [orderId], references: [id])
+  quoteId     String?      @db.Uuid
+  quote       Quote?       @relation(fields: [quoteId], references: [id])
+  version     Int
+  fileName    String       @unique
+  sha256      String
+  sizeBytes   Int
+  generatedById String     @db.Uuid
+  generatedBy User         @relation(fields: [generatedById], references: [id])
+  createdAt   DateTime     @default(now())
+
+  @@index([orderId])
+  @@index([quoteId])
+  @@map("generated_documents")
+}
+
+/// Sequências atômicas para numeração única (ex.: PED-2026 -> 42)
+model NumberSequence {
+  key   String @id
+  value Int
+
+  @@map("number_sequences")
+}

@@ -1,0 +1,181 @@
+import { useEffect, useState, type ReactNode } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import {
+  BarChart3,
+  Boxes,
+  ClipboardCheck,
+  ClipboardList,
+  FileText,
+  Home,
+  KeyRound,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Package,
+  Route,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  Tags,
+  UserCog,
+  Users,
+  Warehouse,
+  X,
+} from 'lucide-react';
+import { useAuth } from '../../lib/auth';
+import { api } from '../../lib/api';
+import { cx } from '../ui';
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: ReactNode;
+  badge?: number;
+  end?: boolean;
+}
+
+export function Brand({ light = true }: { light?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex size-9 items-center justify-center rounded-lg bg-gold-500/15 ring-1 ring-gold-400/40">
+        <svg viewBox="0 0 64 64" className="size-6" aria-hidden>
+          <path d="M18 14h13c12 0 19 7 19 18s-7 18-19 18H18z" fill="none" stroke="#C9A55A" strokeWidth="6" />
+        </svg>
+      </div>
+      <div className="leading-tight">
+        <p className={cx('text-lg font-semibold tracking-[0.2em]', light ? 'text-white' : 'text-navy-900')}>DELLA</p>
+        <p className={cx('text-[10px] uppercase tracking-[0.18em]', light ? 'text-gold-300' : 'text-gold-600')}>Pedidos de venda</p>
+      </div>
+    </div>
+  );
+}
+
+export function AppShell() {
+  const { me, logout } = useAuth();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const [open, setOpen] = useState(false);
+  const isAdmin = me?.user.role === 'ADMIN';
+
+  useEffect(() => setOpen(false), [loc.pathname]);
+
+  const pending = useQuery({
+    queryKey: ['approvals-count'],
+    queryFn: () => api<{ total: number }>('/admin/approvals', { query: { status: 'PENDING', pageSize: 1 } }),
+    enabled: isAdmin,
+    refetchInterval: 60_000,
+  });
+
+  const items: NavItem[] = isAdmin
+    ? [
+        { to: '/admin', label: 'Dashboard', icon: <LayoutDashboard />, end: true },
+        { to: '/admin/clientes', label: 'Clientes', icon: <Users /> },
+        { to: '/admin/produtos', label: 'Produtos', icon: <Package /> },
+        { to: '/admin/marcas', label: 'Marcas e categorias', icon: <Tags /> },
+        { to: '/admin/vendedores', label: 'Vendedores', icon: <UserCog /> },
+        { to: '/admin/pedidos', label: 'Pedidos', icon: <ClipboardList /> },
+        { to: '/admin/orcamentos', label: 'Orçamentos', icon: <FileText /> },
+        { to: '/admin/aprovacoes', label: 'Aprovações', icon: <ClipboardCheck />, badge: pending.data?.total },
+        { to: '/admin/estoque', label: 'Estoque', icon: <Warehouse /> },
+        { to: '/admin/relatorios', label: 'Relatórios', icon: <BarChart3 /> },
+        { to: '/admin/auditoria', label: 'Auditoria', icon: <ScrollText /> },
+        { to: '/admin/configuracoes', label: 'Configurações', icon: <Settings /> },
+      ]
+    : [
+        { to: '/vendedor', label: 'Início', icon: <Home />, end: true },
+        { to: '/vendedor/pedidos', label: 'Meus pedidos', icon: <ClipboardList /> },
+        { to: '/vendedor/processo', label: 'Processo do pedido', icon: <Route /> },
+        { to: '/vendedor/orcamentos', label: 'Orçamentos', icon: <FileText /> },
+        { to: '/vendedor/catalogo', label: 'Catálogo', icon: <Boxes /> },
+      ];
+
+  const sidebar = (
+    <div className="flex h-full flex-col bg-navy-900 text-navy-100">
+      <div className="flex items-center justify-between px-5 py-5">
+        <Brand />
+        <button className="rounded p-1 text-navy-200 lg:hidden" onClick={() => setOpen(false)} aria-label="Fechar menu">
+          <X className="size-5" />
+        </button>
+      </div>
+      <div className="mx-5 mb-3 h-px bg-gradient-to-r from-gold-500/60 to-transparent" />
+      <p className="px-5 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-navy-300">{isAdmin ? 'Administração' : 'Representante'}</p>
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
+        {items.map((it) => (
+          <NavLink
+            key={it.to}
+            to={it.to}
+            end={it.end}
+            className={({ isActive }) =>
+              cx(
+                'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors [&_svg]:size-[18px]',
+                isActive ? 'bg-white/10 font-medium text-white' : 'text-navy-200 hover:bg-white/5 hover:text-white',
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-gold-400" />}
+                <span className={isActive ? 'text-gold-400' : 'text-navy-300 group-hover:text-navy-100'}>{it.icon}</span>
+                <span className="flex-1">{it.label}</span>
+                {!!it.badge && <span className="rounded-full bg-gold-500 px-2 py-0.5 text-xs font-semibold text-white">{it.badge}</span>}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="border-t border-white/10 p-3">
+        <NavLink to="/conta" className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-navy-200 hover:bg-white/5 hover:text-white">
+          <KeyRound className="size-[18px] text-navy-300" /> Minha conta
+        </NavLink>
+        <button
+          onClick={async () => {
+            await logout();
+            nav('/login');
+          }}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-navy-200 hover:bg-white/5 hover:text-white"
+        >
+          <LogOut className="size-[18px] text-navy-300" /> Sair
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-dvh lg:pl-64">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block">{sidebar}</aside>
+      {open && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-navy-950/50" onClick={() => setOpen(false)} />
+          <aside className="animate-fadein absolute inset-y-0 left-0 w-72 shadow-2xl">{sidebar}</aside>
+        </div>
+      )}
+      <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-line bg-white/90 px-4 backdrop-blur lg:px-8">
+        <div className="flex items-center gap-3">
+          <button className="rounded-lg p-2 text-navy-900 hover:bg-navy-50 lg:hidden" onClick={() => setOpen(true)} aria-label="Abrir menu">
+            <Menu className="size-5" />
+          </button>
+          <span className="hidden text-sm text-muted sm:inline">{me?.company.name ?? 'Della'} • Sistema comercial</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right leading-tight">
+            <p className="text-sm font-medium text-navy-900">{me?.rep?.fullName ?? me?.user.name}</p>
+            <p className="text-xs text-muted">{isAdmin ? 'Administrador' : me?.rep?.title}</p>
+          </div>
+          <div className="flex size-9 items-center justify-center rounded-full bg-navy-900 text-sm font-semibold text-gold-300">
+            {(me?.user.name ?? '?')
+              .split(' ')
+              .map((p) => p[0])
+              .slice(0, 2)
+              .join('')
+              .toUpperCase()}
+          </div>
+          {isAdmin && <ShieldCheck className="hidden size-4 text-gold-500 sm:block" aria-label="Administrador" />}
+        </div>
+      </header>
+      <main className="mx-auto max-w-[1400px] px-4 py-6 lg:px-8 lg:py-8">
+        <Outlet />
+      </main>
+    </div>
+  );
+}

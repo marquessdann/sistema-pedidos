@@ -1,0 +1,48 @@
+{
+  "name": "@della/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../.env src/server.ts",
+    "build": "tsup",
+    "start": "node --env-file-if-exists=../.env dist/server.js",
+    "seed:prod": "node --env-file-if-exists=../.env dist/seed.js",
+    "create-admin:prod": "node --env-file-if-exists=../.env dist/create-admin.js",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:seed": "tsx --env-file-if-exists=../.env prisma/seed.ts",
+    "db:demo": "tsx --env-file-if-exists=../.env prisma/demo.ts",
+    "create-admin": "tsx --env-file-if-exists=../.env src/scripts/createAdmin.ts",
+    "test": "vitest run"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@della/shared": "*",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/multipart": "^9.0.3",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/static": "^8.2.0",
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/client": "6.19.3",
+    "fastify": "^5.6.0",
+    "nodemailer": "^7.0.6",
+    "pdfkit": "^0.17.2",
+    "prisma": "6.19.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/nodemailer": "^7.0.1",
+    "@types/pdfkit": "^0.17.2",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

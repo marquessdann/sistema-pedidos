@@ -1,0 +1,86 @@
+import { CLIENT_STATUS_LABELS, ORDER_STATUS_LABELS, QUOTE_STATUS_LABELS } from '@della/shared';
+
+export type Tone = 'gray' | 'blue' | 'navy' | 'gold' | 'green' | 'red' | 'amber' | 'violet';
+
+export const ORDER_TONE: Record<string, Tone> = {
+  DRAFT: 'gray',
+  CREATED: 'blue',
+  PENDING_APPROVAL: 'amber',
+  APPROVED: 'navy',
+  AWAITING_PICKING: 'violet',
+  PICKING: 'violet',
+  AWAITING_SHIPMENT: 'violet',
+  SHIPPED: 'gold',
+  DELIVERED: 'green',
+  COMPLETED: 'green',
+  CANCELLED: 'red',
+  REJECTED: 'red',
+};
+export const QUOTE_TONE: Record<string, Tone> = {
+  DRAFT: 'gray',
+  SENT: 'blue',
+  AWAITING_RESPONSE: 'amber',
+  APPROVED_BY_CLIENT: 'green',
+  REJECTED: 'red',
+  EXPIRED: 'gray',
+  CONVERTED: 'navy',
+};
+export const CLIENT_TONE: Record<string, Tone> = {
+  PENDING_REGISTRATION: 'amber',
+  UNDER_REVIEW: 'blue',
+  ACTIVE: 'green',
+  BLOCKED: 'red',
+  INACTIVE: 'gray',
+};
+export const APPROVAL_TONE: Record<string, Tone> = { NONE: 'gray', PENDING: 'amber', APPROVED: 'green', REJECTED: 'red' };
+
+export { CLIENT_STATUS_LABELS, ORDER_STATUS_LABELS, QUOTE_STATUS_LABELS };
+
+export const AUDIT_LABELS: Record<string, string> = {
+  LOGIN: 'Login',
+  LOGIN_FAILED: 'Falha de login',
+  LOGIN_LOCKED: 'Usuário bloqueado por tentativas',
+  LOGOUT: 'Logout',
+  PASSWORD_CHANGED: 'Senha alterada',
+  CLIENT_CREATED: 'Cliente cadastrado',
+  CLIENT_UPDATED: 'Cliente alterado',
+  CLIENT_STATUS_CHANGED: 'Status do cliente alterado',
+  PRODUCT_CREATED: 'Produto cadastrado',
+  PRODUCT_UPDATED: 'Produto alterado',
+  PRODUCT_PRICE_CHANGED: 'Preço/custo alterado',
+  PRODUCT_DUPLICATED: 'Produto duplicado',
+  PRODUCT_ACTIVATED: 'Produto ativado',
+  PRODUCT_DEACTIVATED: 'Produto inativado',
+  PRODUCT_IMAGES_ADDED: 'Imagens adicionadas',
+  PRODUCT_IMAGE_REMOVED: 'Imagem removida',
+  ORDER_DRAFT_CREATED: 'Rascunho de pedido criado',
+  ORDER_DRAFT_UPDATED: 'Rascunho de pedido alterado',
+  ORDER_DRAFT_DELETED: 'Rascunho excluído',
+  ORDER_CONFIRMED: 'Pedido confirmado',
+  ORDER_STATUS_CHANGED: 'Status do pedido alterado',
+  ORDER_CANCELLED: 'Pedido cancelado',
+  ORDER_REOPENED: 'Pedido reaberto',
+  ORDER_DUPLICATED: 'Pedido duplicado',
+  DISCOUNT_APPROVAL_REQUESTED: 'Aprovação de desconto solicitada',
+  DISCOUNT_APPROVED: 'Desconto aprovado',
+  DISCOUNT_REJECTED: 'Desconto reprovado',
+  QUOTE_CREATED: 'Orçamento criado',
+  QUOTE_UPDATED: 'Orçamento alterado',
+  QUOTE_STATUS_CHANGED: 'Status do orçamento alterado',
+  QUOTE_CONVERTED: 'Orçamento convertido em pedido',
+  QUOTE_DUPLICATED: 'Orçamento duplicado',
+  QUOTE_RECONVERSION_ALLOWED: 'Nova conversão liberada',
+  DOCUMENT_GENERATED: 'PDF gerado',
+  DOCUMENT_EMAILED: 'PDF enviado por e-mail',
+  STOCK_ADJUSTED: 'Ajuste de estoque',
+  REP_CREATED: 'Vendedor cadastrado',
+  REP_UPDATED: 'Vendedor alterado',
+  REP_DISCOUNT_LIMIT_CHANGED: 'Limite de desconto alterado',
+  REP_ACTIVATED: 'Vendedor ativado',
+  REP_BLOCKED: 'Vendedor bloqueado',
+  REP_PASSWORD_RESET: 'Senha do vendedor redefinida',
+  SETTINGS_UPDATED: 'Configurações alteradas',
+  PRICING_RULE_CREATED: 'Regra de tributo/acréscimo criada',
+  PRICING_RULE_UPDATED: 'Regra de tributo/acréscimo alterada',
+  STATUS_TRANSITIONS_UPDATED: 'Transições de status alteradas',
+};
