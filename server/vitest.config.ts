@@ -17,7 +17,7 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       DATABASE_URL: testDb,
-      STORAGE_DIR: path.resolve(__dirname, 'test-storage'),
+      DIRECT_URL: testDb,
     },
   },
 });

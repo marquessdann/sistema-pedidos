@@ -1,6 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { ORDER_STATUS_LABELS, QUOTE_STATUS_LABELS, formatBRL, formatDateBR } from '@della/shared';
@@ -10,7 +8,7 @@ import { actor, requireAuth } from '../../lib/auth';
 import { audit } from '../../lib/audit';
 import { AppError, notFound, unprocessable } from '../../lib/errors';
 import { getSettings } from '../../lib/settings';
-import { filePath } from '../../lib/storage';
+import { getFile, putFile } from '../../lib/storage';
 import { fromDbDate } from '../../lib/validation';
 import { docScopeForRep } from '../commercial/access';
 import { sendMail } from './mailer';
@@ -61,7 +59,7 @@ async function buildPdfData(kind: Kind, doc: Awaited<ReturnType<typeof loadDoc>>
       email: s.email,
       website: s.website,
       address: s.address,
-      logoPath: s.logoFileName ? filePath('company', s.logoFileName) : null,
+      logo: s.logoFileName ? (await getFile('company', s.logoFileName).catch(() => null))?.data ?? null : null,
       footerText: s.pdfFooterText,
       quoteTerms: s.quoteTerms,
       timezone: s.timezone,
@@ -83,6 +81,8 @@ async function buildPdfData(kind: Kind, doc: Awaited<ReturnType<typeof loadDoc>>
       name: i.productName,
       brand: i.brandName,
       unit: i.unit,
+      saleUnit: i.saleUnit,
+      unitsPerSaleUnit: i.unitsPerSaleUnit,
       quantity: i.quantity,
       unitPriceCents: i.unitPriceCents,
       discountBps: i.discountBps,
@@ -147,10 +147,9 @@ export function documentRoutes(renderer: PdfRenderer = renderPdf) {
         req.log.error({ err }, 'Falha ao gerar PDF');
         throw new AppError(502, 'Não foi possível gerar o PDF agora. O registro foi preservado — tente novamente.', 'PDF_FAILED');
       }
-      const fileName = `${crypto.randomUUID()}.pdf`;
-      await fsp.writeFile(filePath('documents', fileName), pdf);
       const sha256 = crypto.createHash('sha256').update(pdf).digest('hex');
       const created = await prisma.$transaction(async (tx) => {
+        const { fileName } = await putFile('documents', pdf, 'pdf', 'application/pdf', tx);
         const last = await tx.generatedDocument.findFirst({ where: kind === 'orders' ? { orderId: id } : { quoteId: id }, orderBy: { version: 'desc' } });
         const gd = await tx.generatedDocument.create({
           data: {
@@ -181,13 +180,14 @@ export function documentRoutes(renderer: PdfRenderer = renderPdf) {
       if (!gd) throw notFound('Documento');
       const kind: Kind = gd.orderId ? 'orders' : 'quotes';
       const doc = await loadDoc(req, kind, (gd.orderId ?? gd.quoteId)!); // valida permissão
-      const p = filePath('documents', gd.fileName);
-      if (!fs.existsSync(p)) throw new AppError(410, 'Arquivo não encontrado no armazenamento. Gere o PDF novamente.', 'FILE_MISSING');
+      const file = await getFile('documents', gd.fileName).catch(() => {
+        throw new AppError(410, 'Arquivo não encontrado no armazenamento. Gere o PDF novamente.', 'FILE_MISSING');
+      });
       const name = `${kind === 'orders' ? 'Pedido' : 'Orcamento'}-${doc.number ?? 'RASCUNHO'}-v${gd.version}.pdf`;
       reply.header('Content-Type', 'application/pdf');
       reply.header('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${name}"`);
       reply.header('Cache-Control', 'private, no-store');
-      return reply.send(fs.createReadStream(p));
+      return reply.send(file.data);
     });
 
     app.post('/file/:docId/email', async (req) => {
@@ -198,7 +198,7 @@ export function documentRoutes(renderer: PdfRenderer = renderPdf) {
       const kind: Kind = gd.orderId ? 'orders' : 'quotes';
       const doc = await loadDoc(req, kind, (gd.orderId ?? gd.quoteId)!);
       const number = doc.number ?? 'RASCUNHO';
-      const content = await fsp.readFile(filePath('documents', gd.fileName));
+      const content = (await getFile('documents', gd.fileName)).data;
       const res = await sendMail({
         to: b.to,
         subject: `${kind === 'orders' ? 'Pedido' : 'Orçamento'} nº ${number}`,

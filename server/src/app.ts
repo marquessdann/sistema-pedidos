@@ -12,7 +12,7 @@ import { env, isProd, isTest } from './config';
 import { prisma } from './db';
 import { loadSession } from './lib/auth';
 import { errorHandler } from './lib/errors';
-import { ensureStorage, MAX_IMAGE_BYTES } from './lib/storage';
+import { MAX_IMAGE_BYTES } from './lib/storage';
 import { authRoutes } from './modules/auth/routes';
 import { adminRoutes } from './modules/admin';
 import { sellerRoutes } from './modules/seller';
@@ -26,7 +26,6 @@ export interface AppDeps {
 }
 
 export async function buildApp(deps: AppDeps = {}) {
-  await ensureStorage();
   const app = Fastify({
     logger:
       deps.logger === false || isTest

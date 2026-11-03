@@ -15,7 +15,7 @@ export default function OrderProcess() {
   const [q, setQ] = useState('');
   const dq = useDebounced(q);
   const list = useQuery({ queryKey: ['process-list', dq, clientId], queryFn: () => api<any>('/seller/orders', { query: { q: dq, clientId, pageSize: 50 } }), placeholderData: keepPreviousData });
-  const order = useQuery({ queryKey: ['seller-order', selected], queryFn: () => api<any>(`/seller/orders/${selected}`), enabled: !!selected });
+  const order = useQuery({ queryKey: ['seller-order', selected], queryFn: () => api<any>(`/seller/orders/${selected}`), enabled: !!selected, staleTime: 0, refetchOnMount: 'always' });
   return (
     <>
       <PageHeader title="Processo do pedido" subtitle="Selecione um pedido para acompanhar cada etapa" />

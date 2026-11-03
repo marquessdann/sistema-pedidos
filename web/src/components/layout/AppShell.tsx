@@ -6,12 +6,12 @@ import {
   Boxes,
   ClipboardCheck,
   ClipboardList,
+  MoreHorizontal,
   FileText,
   Home,
   KeyRound,
   LayoutDashboard,
   LogOut,
-  Menu,
   Package,
   Route,
   ScrollText,
@@ -33,6 +33,8 @@ interface NavItem {
   icon: ReactNode;
   badge?: number;
   end?: boolean;
+  /** rótulo curto para o menu inferior do celular */
+  short?: string;
 }
 
 export function Brand({ light = true }: { light?: boolean }) {
@@ -69,7 +71,7 @@ export function AppShell() {
 
   const items: NavItem[] = isAdmin
     ? [
-        { to: '/admin', label: 'Dashboard', icon: <LayoutDashboard />, end: true },
+        { to: '/admin', label: 'Dashboard', short: 'Painel', icon: <LayoutDashboard />, end: true },
         { to: '/admin/clientes', label: 'Clientes', icon: <Users /> },
         { to: '/admin/produtos', label: 'Produtos', icon: <Package /> },
         { to: '/admin/marcas', label: 'Marcas e categorias', icon: <Tags /> },
@@ -84,8 +86,8 @@ export function AppShell() {
       ]
     : [
         { to: '/vendedor', label: 'Início', icon: <Home />, end: true },
-        { to: '/vendedor/pedidos', label: 'Meus pedidos', icon: <ClipboardList /> },
-        { to: '/vendedor/processo', label: 'Processo do pedido', icon: <Route /> },
+        { to: '/vendedor/pedidos', label: 'Meus pedidos', short: 'Pedidos', icon: <ClipboardList /> },
+        { to: '/vendedor/processo', label: 'Processo do pedido', short: 'Andamento', icon: <Route /> },
         { to: '/vendedor/orcamentos', label: 'Orçamentos', icon: <FileText /> },
         { to: '/vendedor/catalogo', label: 'Catálogo', icon: <Boxes /> },
       ];
@@ -141,25 +143,38 @@ export function AppShell() {
     </div>
   );
 
+  // telas de montagem de pedido/orçamento ocupam a tela inteira no celular (têm barra própria)
+  const fullscreenFlow = /\/(novo-pedido|novo-orcamento|editar)(\/|$)/.test(loc.pathname);
+  const bottom = isAdmin
+    ? ['/admin', '/admin/pedidos', '/admin/aprovacoes', '/admin/clientes']
+    : ['/vendedor', '/vendedor/pedidos', '/vendedor/processo', '/vendedor/orcamentos'];
+  const bottomItems = bottom.map((to) => items.find((i) => i.to === to)!).filter(Boolean);
+
   return (
     <div className="min-h-dvh lg:pl-64">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block">{sidebar}</aside>
       {open && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-navy-950/50" onClick={() => setOpen(false)} />
-          <aside className="animate-fadein absolute inset-y-0 left-0 w-72 shadow-2xl">{sidebar}</aside>
+          <aside className="animate-fadein absolute inset-y-0 left-0 w-72 max-w-[85vw] shadow-2xl">{sidebar}</aside>
         </div>
       )}
-      <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-line bg-white/90 px-4 backdrop-blur lg:px-8">
+      <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-line bg-white/90 px-4 pt-[env(safe-area-inset-top)] backdrop-blur lg:px-8">
         <div className="flex items-center gap-3">
-          <button className="rounded-lg p-2 text-navy-900 hover:bg-navy-50 lg:hidden" onClick={() => setOpen(true)} aria-label="Abrir menu">
-            <Menu className="size-5" />
-          </button>
-          <span className="hidden text-sm text-muted sm:inline">{me?.company.name ?? 'Della'} • Sistema comercial</span>
+          <div className="lg:hidden">
+            <div className="flex items-center gap-2">
+              <svg viewBox="0 0 64 64" className="size-7" aria-hidden>
+                <rect width="64" height="64" rx="14" fill="#0F2341" />
+                <path d="M20 16h12c11 0 18 6.5 18 16s-7 16-18 16H20z" fill="none" stroke="#C9A55A" strokeWidth="6" />
+              </svg>
+              <span className="text-sm font-semibold tracking-[0.18em] text-navy-900">DELLA</span>
+            </div>
+          </div>
+          <span className="hidden text-sm text-muted lg:inline">{me?.company.name ?? 'Della'} • Sistema comercial</span>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right leading-tight">
-            <p className="text-sm font-medium text-navy-900">{me?.rep?.fullName ?? me?.user.name}</p>
+            <p className="max-w-40 truncate text-sm font-medium text-navy-900">{me?.rep?.fullName ?? me?.user.name}</p>
             <p className="text-xs text-muted">{isAdmin ? 'Administrador' : me?.rep?.title}</p>
           </div>
           <div className="flex size-9 items-center justify-center rounded-full bg-navy-900 text-sm font-semibold text-gold-300">
@@ -173,9 +188,47 @@ export function AppShell() {
           {isAdmin && <ShieldCheck className="hidden size-4 text-gold-500 sm:block" aria-label="Administrador" />}
         </div>
       </header>
-      <main className="mx-auto max-w-[1400px] px-4 py-6 lg:px-8 lg:py-8">
+      <main className={cx('mx-auto max-w-[1400px] px-4 py-5 lg:px-8 lg:py-8', fullscreenFlow ? 'pb-6' : 'pb-28 lg:pb-8')}>
         <Outlet />
       </main>
+      {!fullscreenFlow && (
+        <nav
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,35,65,0.06)] backdrop-blur lg:hidden"
+          aria-label="Menu principal"
+        >
+          <ul className="mx-auto grid max-w-xl grid-cols-5">
+            {bottomItems.map((it) => (
+              <li key={it.to}>
+                <NavLink
+                  to={it.to}
+                  end={it.end}
+                  className={({ isActive }) =>
+                    cx(
+                      'relative flex flex-col items-center gap-0.5 px-1 pb-2 pt-2.5 text-[11px] font-medium [&_svg]:size-[22px]',
+                      isActive ? 'text-navy-900' : 'text-slate-500',
+                    )
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && <span className="absolute inset-x-5 top-0 h-0.5 rounded-full bg-gold-500" />}
+                      <span className={isActive ? 'text-gold-600' : ''}>{it.icon}</span>
+                      <span className="truncate">{it.short ?? it.label}</span>
+                      {!!it.badge && <span className="absolute right-3 top-1 rounded-full bg-gold-500 px-1.5 text-[10px] font-semibold text-white">{it.badge}</span>}
+                    </>
+                  )}
+                </NavLink>
+              </li>
+            ))}
+            <li>
+              <button onClick={() => setOpen(true)} className="flex w-full flex-col items-center gap-0.5 px-1 pb-2 pt-2.5 text-[11px] font-medium text-slate-500 [&_svg]:size-[22px]">
+                <MoreHorizontal />
+                Mais
+              </button>
+            </li>
+          </ul>
+        </nav>
+      )}
     </div>
   );
 }

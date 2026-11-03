@@ -3,7 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "description": "Sistema de gestão de pedidos de venda, orçamentos, clientes, produtos e representantes da Della",
-  "workspaces": ["shared", "server", "web"],
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,yellow \"npm run dev -w server\" \"npm run dev -w web\"",
     "build": "npm run build -w web && npm run build -w server",
@@ -14,10 +18,14 @@
     "db:demo": "npm run db:demo -w server",
     "create-admin": "npm run create-admin -w server",
     "test": "npm run test -w shared && npm run test -w server",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w web"
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w web",
+    "preview:cloud": "node --env-file-if-exists=.env scripts/local-cloud.mjs",
+    "vercel-build": "node scripts/vercel-build.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

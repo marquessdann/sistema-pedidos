@@ -225,6 +225,55 @@ describe('Pedidos', () => {
   });
 });
 
+describe('Venda por caixa (CX) ou unidade (UN)', () => {
+  it('preço da caixa = preço unitário × unidades por caixa; CX e UN do mesmo produto em linhas separadas', async () => {
+    await prisma.product.update({ where: { id: fx.p1 }, data: { unitsPerBox: 12 } });
+    const r = await victor.post('/api/seller/orders', orderBody({
+      items: [
+        { productId: fx.p1, quantity: 2, saleUnit: 'CX' },
+        { productId: fx.p1, quantity: 3, saleUnit: 'UN' },
+        { productId: fx.p1, quantity: 1, saleUnit: 'CX' },
+      ],
+    }));
+    expect(r.status).toBe(201);
+    const items = r.body.order.items;
+    expect(items).toHaveLength(2);
+    const box = items.find((i: any) => i.saleUnit === 'CX');
+    expect(box).toMatchObject({ quantity: 3, unit: 'CX', unitsPerSaleUnit: 12, unitPriceCents: 120_000 });
+    const un = items.find((i: any) => i.saleUnit === 'UN');
+    expect(un).toMatchObject({ quantity: 3, unit: 'UN', unitsPerSaleUnit: 1, unitPriceCents: 10_000 });
+    expect(r.body.order.totalCents).toBe(3 * 120_000 + 3 * 10_000);
+  });
+
+  it('não permite vender por caixa um produto sem "unidades por caixa"', async () => {
+    const r = await victor.post('/api/seller/orders', orderBody({ items: [{ productId: fx.p2, quantity: 1, saleUnit: 'CX' }] }));
+    expect(r.status).toBe(422);
+    expect(r.body.error).toBe('NO_BOX_UNIT');
+  });
+
+  it('estoque é verificado e reservado em unidades (caixas convertidas)', async () => {
+    await prisma.product.update({ where: { id: fx.p1 }, data: { unitsPerBox: 12 } });
+    await prisma.companySettings.update({ where: { id: 1 }, data: { stockEnabled: true, stockPolicy: 'ON_APPROVAL' } });
+    // 50 em estoque: 5 caixas = 60 unidades → insuficiente
+    const tooMuch = await victor.post('/api/seller/orders', orderBody({ items: [{ productId: fx.p1, quantity: 5, saleUnit: 'CX' }] }));
+    expect(tooMuch.body.error).toBe('INSUFFICIENT_STOCK');
+    const o = (await victor.post('/api/seller/orders', orderBody({ items: [{ productId: fx.p1, quantity: 3, saleUnit: 'CX' }, { productId: fx.p1, quantity: 4, saleUnit: 'UN' }] }))).body.order;
+    const admin = await loginAdmin(app);
+    await admin.post(`/api/admin/orders/${o.id}/status`, { status: 'APPROVED' });
+    const p = await prisma.product.findUniqueOrThrow({ where: { id: fx.p1 } });
+    expect(p.reservedQty).toBe(40);
+  });
+
+  it('orçamento por caixa converte em pedido mantendo a unidade de venda', async () => {
+    await prisma.product.update({ where: { id: fx.p1 }, data: { unitsPerBox: 6 } });
+    const q = (await victor.post('/api/seller/quotes', { idempotencyKey: key(), clientId: fx.clientVictor, items: [{ productId: fx.p1, quantity: 2, saleUnit: 'CX' }] })).body.quote;
+    expect(q.totalCents).toBe(120_000);
+    const c = await victor.post(`/api/seller/quotes/${q.id}/convert`, { idempotencyKey: key() });
+    expect(c.status).toBe(201);
+    expect(c.body.order.items[0]).toMatchObject({ saleUnit: 'CX', unitsPerSaleUnit: 6, quantity: 2 });
+  });
+});
+
 describe('Andamento do pedido (status)', () => {
   it('histórico de alteração de status registra anterior, novo, data, usuário e observação', async () => {
     const o = (await victor.post('/api/seller/orders', orderBody())).body.order;

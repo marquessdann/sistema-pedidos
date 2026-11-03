@@ -26,7 +26,7 @@ export interface PdfData {
     email?: string | null;
     website?: string | null;
     address?: string | null;
-    logoPath?: string | null;
+    logo?: Buffer | null;
     footerText?: string | null;
     quoteTerms?: string | null;
     timezone: string;
@@ -47,6 +47,8 @@ export interface PdfData {
     name: string;
     brand: string;
     unit: string;
+    saleUnit?: string;
+    unitsPerSaleUnit?: number;
     quantity: number;
     unitPriceCents: number;
     discountBps: number;
@@ -99,7 +101,7 @@ function sanitize<T>(v: T): T {
   if (typeof v === 'string') return pdfSafeText(v) as T;
   if (Array.isArray(v)) return v.map(sanitize) as T;
   if (v && typeof v === 'object') {
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'logoPath' ? x : sanitize(x)])) as T;
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'logo' ? x : sanitize(x)])) as T;
   }
   return v;
 }
@@ -140,9 +142,9 @@ function draw(doc: PDFKit.PDFDocument, d: PdfData) {
   // ---------- Cabeçalho ----------
   let y = 36;
   let logoDrawn = false;
-  if (d.company.logoPath) {
+  if (d.company.logo) {
     try {
-      doc.image(d.company.logoPath, L, y, { fit: [150, 54] });
+      doc.image(d.company.logo, L, y, { fit: [150, 54] });
       logoDrawn = true;
     } catch {
       logoDrawn = false;
@@ -223,7 +225,7 @@ function draw(doc: PDFKit.PDFDocument, d: PdfData) {
     { key: 'sku', label: 'Código', w: 62, align: 'left' as const },
     { key: 'name', label: 'Produto', w: 0, align: 'left' as const },
     { key: 'brand', label: 'Marca', w: 66, align: 'left' as const },
-    { key: 'qty', label: 'Qtd.', w: 38, align: 'right' as const },
+    { key: 'qty', label: 'Qtd.', w: 46, align: 'right' as const },
     { key: 'unit', label: 'Vlr. unit.', w: 62, align: 'right' as const },
     { key: 'disc', label: 'Desc.', w: 40, align: 'right' as const },
     { key: 'sub', label: 'Subtotal', w: 70, align: 'right' as const },
@@ -246,9 +248,9 @@ function draw(doc: PDFKit.PDFDocument, d: PdfData) {
   d.items.forEach((it, idx) => {
     const cells: Record<string, string> = {
       sku: it.sku,
-      name: `${it.name}${it.unit ? `  (${it.unit})` : ''}`,
+      name: `${it.name}${it.saleUnit === 'CX' && (it.unitsPerSaleUnit ?? 1) > 1 ? `  (caixa c/ ${it.unitsPerSaleUnit} un.)` : ''}`,
       brand: it.brand,
-      qty: it.quantity.toLocaleString('pt-BR'),
+      qty: `${it.quantity.toLocaleString('pt-BR')} ${it.unit}`,
       unit: formatBRL(it.unitPriceCents),
       disc: it.discountBps ? formatBps(it.discountBps, it.discountBps % 100 === 0 ? 0 : 2) : '—',
       sub: formatBRL(it.netBeforeGeneralCents),
@@ -274,7 +276,7 @@ function draw(doc: PDFKit.PDFDocument, d: PdfData) {
 
   // ---------- Totais ----------
   const t = d.totals;
-  const totalRows: [string, string, boolean?][] = [[`Subtotal bruto (${t.totalQuantity.toLocaleString('pt-BR')} un.)`, formatBRL(t.grossCents)]];
+  const totalRows: [string, string, boolean?][] = [['Subtotal bruto', formatBRL(t.grossCents)]];
   if (t.itemDiscountCents) totalRows.push(['Descontos nos itens', `- ${formatBRL(t.itemDiscountCents)}`]);
   if (t.generalDiscountCents) totalRows.push([`Desconto comercial (${formatBps(t.generalDiscountBps)})`, `- ${formatBRL(t.generalDiscountCents)}`]);
   for (const s of t.surcharges) totalRows.push([s.name, `+ ${formatBRL(s.amountCents)}`]);

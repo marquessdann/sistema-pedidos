@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -8,6 +8,7 @@ import {
   ArrowRight,
   BadgePercent,
   CheckCircle2,
+  ChevronUp,
   FileText,
   Minus,
   PackageSearch,
@@ -18,24 +19,31 @@ import {
   ShieldAlert,
   ShoppingCart,
   Trash2,
+  X,
 } from 'lucide-react';
 import { addDays, calculate, checkDiscountLimit, formatBRL, formatBps, formatCnpj, formatDateBR, type CalcResult, type PricingRule } from '@della/shared';
 import { ApiError, api, errorMessage, newKey } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { clearSession, useDebounced, useSessionState } from '../../lib/hooks';
-import { Alert, Button, Card, CardTitle, EmptyState, Field, Input, Loading, Modal, MoneyInput, PageHeader, PercentInput, Select, Stepper, Textarea, cx, useConfirm } from '../../components/ui';
+import { Alert, Button, Card, CardTitle, EmptyState, Field, Input, Loading, Modal, MoneyInput, PercentInput, Select, Textarea, cx, useConfirm } from '../../components/ui';
 import { ProductThumb } from '../../components/common';
 
 type Mode = 'order' | 'quote';
+type SaleUnit = 'UN' | 'CX';
 
 interface Line {
   productId: string;
   sku: string;
   name: string;
   brandName: string;
-  unit: string;
+  /** unidade base do produto (UN, KG…) */
+  baseUnit: string;
+  /** unidades por caixa (null = produto não é vendido por caixa) */
+  unitsPerBox: number | null;
+  saleUnit: SaleUnit;
   imageFileName: string | null;
-  unitPriceCents: number;
+  /** preço por unidade base */
+  basePriceCents: number;
   quantity: number;
   discountBps: number;
 }
@@ -72,6 +80,7 @@ interface CatalogProduct {
   sku: string;
   name: string;
   unit: string;
+  unitsPerBox: number | null;
   description: string | null;
   priceCents: number;
   imageFileName: string | null;
@@ -79,6 +88,11 @@ interface CatalogProduct {
   brand: { id: string; name: string };
   category: { id: string; name: string } | null;
 }
+
+const factor = (l: Pick<Line, 'saleUnit' | 'unitsPerBox'>) => (l.saleUnit === 'CX' && l.unitsPerBox ? l.unitsPerBox : 1);
+const linePrice = (l: Line) => l.basePriceCents * factor(l);
+const unitLabel = (l: Pick<Line, 'saleUnit' | 'baseUnit'>) => (l.saleUnit === 'CX' ? 'CX' : l.baseUnit);
+const sameLine = (a: Pick<Line, 'productId' | 'saleUnit'>, b: Pick<Line, 'productId' | 'saleUnit'>) => a.productId === b.productId && a.saleUnit === b.saleUnit;
 
 const blank = (clientId: string): WizardState => ({
   key: newKey(),
@@ -95,6 +109,8 @@ const blank = (clientId: string): WizardState => ({
   step: 0,
 });
 
+const STEPS = ['Produtos', 'Revisão e condições', 'Confirmar'];
+
 export default function DocWizard({ mode }: { mode: Mode }) {
   const { id: editId } = useParams();
   const [params] = useSearchParams();
@@ -103,13 +119,12 @@ export default function DocWizard({ mode }: { mode: Mode }) {
   const confirm = useConfirm();
   const { me } = useAuth();
   const clientParam = params.get('cliente') ?? '';
-  const storeKey = `della:wizard:${mode}:${editId ?? clientParam}`;
+  const storeKey = `della:wizard3:${mode}:${editId ?? clientParam}`;
   const [s, setS] = useSessionState<WizardState>(storeKey, blank(clientParam));
   const [busy, setBusy] = useState<null | string>(null);
-  const [dupPrompt, setDupPrompt] = useState<{ product: CatalogProduct; qty: number } | null>(null);
+  const [cartOpen, setCartOpen] = useState(false);
   const isQuote = mode === 'quote';
   const docLabel = isQuote ? 'orçamento' : 'pedido';
-  const steps = [isQuote ? 'Dados do orçamento' : 'Dados do pedido', 'Marcas e produtos', 'Revisão dos produtos', 'Resumo financeiro', 'Confirmação'];
   const update = (patch: Partial<WizardState>) => setS((p) => ({ ...p, ...patch }));
 
   const config = useQuery({ queryKey: ['seller-config'], queryFn: () => api<SellerConfig>('/seller/config') });
@@ -132,9 +147,11 @@ export default function DocWizard({ mode }: { mode: Mode }) {
         sku: i.sku,
         name: i.productName,
         brandName: i.brandName,
-        unit: i.unit,
+        baseUnit: i.saleUnit === 'CX' ? 'UN' : i.unit,
+        unitsPerBox: i.saleUnit === 'CX' ? i.unitsPerSaleUnit : null,
+        saleUnit: i.saleUnit ?? 'UN',
         imageFileName: i.imageFileName,
-        unitPriceCents: i.unitPriceCents,
+        basePriceCents: Math.round(i.unitPriceCents / (i.unitsPerSaleUnit || 1)),
         quantity: i.quantity,
         discountBps: i.discountBps,
       })),
@@ -155,13 +172,13 @@ export default function DocWizard({ mode }: { mode: Mode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.data, isQuote]);
 
-  // cálculo instantâneo no navegador (mesmo motor do servidor; o servidor recalcula e valida ao salvar)
+  // cálculo instantâneo no aparelho (mesmo motor do servidor; o servidor recalcula e valida ao salvar)
   const calc = useMemo<{ result: CalcResult | null; error: string | null }>(() => {
     if (!s.items.length) return { result: null, error: null };
     try {
       return {
         result: calculate({
-          items: s.items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPriceCents: i.unitPriceCents, discountBps: i.discountBps })),
+          items: s.items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPriceCents: linePrice(i), discountBps: i.discountBps })),
           generalDiscountBps: s.generalDiscountBps,
           freightCents: s.freightCents,
           rules: config.data?.surchargeRules ?? [],
@@ -191,24 +208,42 @@ export default function DocWizard({ mode }: { mode: Mode }) {
   const c = client.data;
 
   // ---------- itens ----------
-  const addProduct = (p: CatalogProduct, qty: number, mode2: 'add' | 'sum' | 'replace' = 'add') => {
-    if (!Number.isInteger(qty) || qty <= 0) return toast.error('Informe uma quantidade inteira maior que zero.');
-    const exists = s.items.find((i) => i.productId === p.id);
-    if (exists && mode2 === 'add') return setDupPrompt({ product: p, qty });
-    if (exists) {
-      update({ items: s.items.map((i) => (i.productId === p.id ? { ...i, quantity: mode2 === 'sum' ? i.quantity + qty : qty, unitPriceCents: p.priceCents } : i)) });
-    } else {
-      update({
-        items: [...s.items, { productId: p.id, sku: p.sku, name: p.name, brandName: p.brand.name, unit: p.unit, imageFileName: p.imageFileName, unitPriceCents: p.priceCents, quantity: qty, discountBps: 0 }],
-      });
-    }
-    toast.success(`${p.name} — ${exists && mode2 === 'sum' ? 'quantidade somada' : 'adicionado'}.`, { duration: 1500 });
+  const addProduct = (p: CatalogProduct, qty: number, saleUnit: SaleUnit) => {
+    if (!Number.isInteger(qty) || qty <= 0) return toast.error('Informe uma quantidade maior que zero.');
+    const line: Line = {
+      productId: p.id,
+      sku: p.sku,
+      name: p.name,
+      brandName: p.brand.name,
+      baseUnit: p.unit,
+      unitsPerBox: p.unitsPerBox,
+      saleUnit,
+      imageFileName: p.imageFileName,
+      basePriceCents: p.priceCents,
+      quantity: qty,
+      discountBps: 0,
+    };
+    const exists = s.items.find((i) => sameLine(i, line));
+    update({
+      items: exists
+        ? s.items.map((i) => (sameLine(i, line) ? { ...i, quantity: i.quantity + qty, basePriceCents: p.priceCents } : i))
+        : [...s.items, line],
+    });
+    toast.success(exists ? `${p.name}: agora ${exists.quantity + qty} ${unitLabel(line)}` : `${qty} ${unitLabel(line)} • ${p.name}`, { duration: 1400 });
   };
-  const setQty = (pid: string, q: number) => update({ items: s.items.map((i) => (i.productId === pid ? { ...i, quantity: Math.max(1, Math.min(1_000_000, Math.floor(q) || 1)) } : i)) });
-  const remove = async (pid: string) => {
-    const it = s.items.find((i) => i.productId === pid);
-    if (await confirm({ title: 'Remover produto?', message: `Remover “${it?.name}” do ${docLabel}?`, tone: 'danger', confirmLabel: 'Remover' })) {
-      update({ items: s.items.filter((i) => i.productId !== pid) });
+  const patchLine = (l: Line, patch: Partial<Line>) => {
+    const next = { ...l, ...patch };
+    // trocar UN↔CX para uma unidade que já está no carrinho junta as linhas
+    const dup = patch.saleUnit && s.items.find((i) => i !== l && sameLine(i, next));
+    update({
+      items: dup
+        ? s.items.filter((i) => i !== l).map((i) => (i === dup ? { ...i, quantity: i.quantity + next.quantity } : i))
+        : s.items.map((i) => (i === l ? next : i)),
+    });
+  };
+  const remove = async (l: Line) => {
+    if (await confirm({ title: 'Remover produto?', message: `Remover “${l.name}” (${unitLabel(l)}) do ${docLabel}?`, tone: 'danger', confirmLabel: 'Remover' })) {
+      update({ items: s.items.filter((i) => i !== l) });
     }
   };
 
@@ -216,7 +251,7 @@ export default function DocWizard({ mode }: { mode: Mode }) {
   const payload = (extra: Record<string, unknown>) => ({
     idempotencyKey: s.key,
     clientId: s.clientId,
-    items: s.items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps })),
+    items: s.items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps, saleUnit: i.saleUnit })),
     generalDiscountBps: s.generalDiscountBps,
     freightCents: s.freightCents,
     paymentTermId: s.paymentTermId || null,
@@ -228,13 +263,13 @@ export default function DocWizard({ mode }: { mode: Mode }) {
 
   const handleError = (e: unknown, retry: () => void) => {
     if (e instanceof ApiError && e.code === 'DISCOUNT_LIMIT') {
-      update({ step: 3 });
+      update({ step: 1 });
       toast.error(e.message);
       return;
     }
-    if (e instanceof ApiError && e.code === 'PRODUCT_INACTIVE') {
+    if (e instanceof ApiError && (e.code === 'PRODUCT_INACTIVE' || e.code === 'NO_BOX_UNIT' || e.code === 'INSUFFICIENT_STOCK')) {
       toast.error(e.message);
-      update({ step: 2 });
+      update({ step: 1 });
       return;
     }
     toast.error(errorMessage(e), e instanceof ApiError && (e.status === 0 || e.status >= 500) ? { action: { label: 'Tentar novamente', onClick: retry }, duration: 10000 } : undefined);
@@ -246,8 +281,17 @@ export default function DocWizard({ mode }: { mode: Mode }) {
     nav(path, { replace: true });
   };
 
+  const generatePdf = async (kind: 'orders' | 'quotes', id: string) => {
+    try {
+      await api(`/documents/${kind}/${id}`, { method: 'POST', body: {} });
+      toast.success('PDF gerado. Use Visualizar, Baixar, Compartilhar ou WhatsApp.');
+    } catch (e) {
+      toast.error(`${errorMessage(e)} O ${docLabel} foi salvo; gere o PDF novamente na próxima tela.`);
+    }
+  };
+
   const saveOrder = async (action: 'DRAFT' | 'CONFIRM' | 'REQUEST_APPROVAL', thenPdf = false): Promise<void> => {
-    setBusy(action);
+    setBusy(action + (thenPdf ? '-pdf' : ''));
     try {
       const body = payload({ action });
       const res = s.savedId ? await api(`/seller/orders/${s.savedId}`, { method: 'PUT', body }) : await api('/seller/orders', { body });
@@ -272,7 +316,7 @@ export default function DocWizard({ mode }: { mode: Mode }) {
   };
 
   const saveQuote = async (requestApproval: boolean, thenPdf = false): Promise<void> => {
-    setBusy(requestApproval ? 'REQUEST_APPROVAL' : 'DRAFT');
+    setBusy(thenPdf ? 'QUOTE-pdf' : 'QUOTE');
     try {
       const body = payload({ validUntil: s.validUntil || null, requestApproval });
       const res = s.savedId ? await api(`/seller/quotes/${s.savedId}`, { method: 'PUT', body }) : await api('/seller/quotes', { body });
@@ -288,15 +332,6 @@ export default function DocWizard({ mode }: { mode: Mode }) {
     }
   };
 
-  const generatePdf = async (kind: 'orders' | 'quotes', id: string) => {
-    try {
-      await api(`/documents/${kind}/${id}`, { method: 'POST', body: {} });
-      toast.success('PDF gerado. Use os botões Visualizar, Baixar ou Compartilhar.');
-    } catch (e) {
-      toast.error(`${errorMessage(e)} O ${docLabel} foi salvo; gere o PDF novamente na próxima tela.`);
-    }
-  };
-
   const confirmOrder = async () => {
     const ok = await confirm({
       title: 'Confirmar pedido?',
@@ -305,7 +340,7 @@ export default function DocWizard({ mode }: { mode: Mode }) {
           <p>
             Pedido para <strong>{c?.tradeName ?? c?.legalName}</strong> no valor de <strong>{formatBRL(calc.result?.totalCents ?? 0)}</strong>.
           </p>
-          <p className="text-muted">Após a confirmação o pedido recebe um número definitivo e não poderá mais ser editado pelo vendedor.</p>
+          <p className="text-muted">Depois de confirmado, o pedido recebe um número definitivo e não pode mais ser editado.</p>
         </div>
       ),
       confirmLabel: 'Confirmar pedido',
@@ -314,186 +349,185 @@ export default function DocWizard({ mode }: { mode: Mode }) {
     if (ok) await saveOrder('CONFIRM');
   };
 
-  const canNext = s.step === 0 ? !!s.clientId : s.step === 1 || s.step === 2 ? s.items.length > 0 && !calc.error : true;
   const go = (step: number) => {
     update({ step });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const canNext = s.items.length > 0 && !calc.error && (s.step !== 1 || !overLimit || !!s.discountReason.trim());
 
   const cancelAll = async () => {
-    if (await confirm({ title: `Descartar ${docLabel}?`, message: s.savedId ? 'As alterações não salvas serão perdidas. O rascunho salvo continuará disponível.' : 'Todos os dados preenchidos serão perdidos.', tone: 'danger', confirmLabel: 'Descartar' })) {
+    if (await confirm({ title: `Sair do ${docLabel}?`, message: s.savedId ? 'Alterações não salvas serão perdidas. O que já foi salvo continua disponível.' : 'Os produtos escolhidos serão descartados.', tone: 'danger', confirmLabel: 'Sair', cancelLabel: 'Continuar aqui' })) {
       clearSession(storeKey);
       nav('/vendedor');
     }
   };
 
   return (
-    <div className="pb-36">
-      <PageHeader
-        title={editId ? `Editar ${docLabel} ${existing.data?.number ?? ''}` : isQuote ? 'Novo orçamento' : 'Novo pedido'}
-        subtitle={c ? `${c.tradeName ?? c.legalName} • CNPJ ${formatCnpj(c.cnpj)}` : undefined}
-        actions={<Button variant="ghost" onClick={cancelAll}>Cancelar</Button>}
-      />
-      <Card className="mb-6 py-4">
-        <Stepper steps={steps} current={s.step} onStep={go} />
-      </Card>
+    <div className="pb-40 lg:pb-28">
+      {/* Cabeçalho compacto */}
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gold-600">
+            {editId ? `Editar ${docLabel} ${existing.data?.number ?? ''}` : isQuote ? 'Novo orçamento' : 'Novo pedido'}
+          </p>
+          <h1 className="truncate text-lg font-semibold text-navy-900 sm:text-xl">{c ? c.tradeName ?? c.legalName : 'Carregando cliente…'}</h1>
+          {c && <p className="text-xs text-muted">CNPJ {formatCnpj(c.cnpj)}</p>}
+        </div>
+        <Button variant="ghost" size="sm" icon={<X className="size-4" />} onClick={cancelAll}>
+          Sair
+        </Button>
+      </div>
+      <StepBar current={s.step} onStep={(i) => i < s.step && go(i)} />
 
-      {s.step === 0 && <StepData s={s} update={update} cfg={cfg} client={c} isQuote={isQuote} sellerName={me?.rep?.fullName ?? ''} existingNumber={existing.data?.number} />}
-      {s.step === 1 && <StepProducts s={s} cfg={cfg} onAdd={addProduct} onQty={setQty} onRemove={remove} />}
-      {s.step === 2 && <StepReview s={s} cfg={cfg} calc={calc.result} update={update} onQty={setQty} onRemove={remove} />}
-      {s.step === 3 && <StepFinance s={s} cfg={cfg} calc={calc.result} check={check} update={update} />}
-      {s.step === 4 && (
+      {s.step === 0 && <StepProducts s={s} cfg={cfg} onAdd={addProduct} onPatch={patchLine} onRemove={remove} />}
+      {s.step === 1 && <StepReview s={s} cfg={cfg} calc={calc.result} check={check} update={update} onPatch={patchLine} onRemove={remove} isQuote={isQuote} onAddMore={() => go(0)} />}
+      {s.step === 2 && (
         <StepConfirm s={s} cfg={cfg} calc={calc.result} client={c} sellerName={me?.rep?.fullName ?? ''} isQuote={isQuote} overLimit={overLimit} reasons={check?.reasons ?? []}>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" icon={<ArrowLeft className="size-4" />} onClick={() => go(3)}>Voltar e editar</Button>
+          <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
             {isQuote ? (
               <>
-                <Button variant="secondary" icon={<Save className="size-4" />} loading={busy === 'DRAFT'} disabled={!!busy || (overLimit && !s.discountReason)} onClick={() => saveQuote(overLimit)}>
-                  {overLimit ? 'Salvar e solicitar aprovação' : 'Salvar orçamento'}
-                </Button>
                 {!overLimit && (
-                  <Button variant="gold" icon={<FileText className="size-4" />} disabled={!!busy} onClick={() => saveQuote(false, true)}>
+                  <Button variant="gold" size="lg" className="sm:order-last" icon={<FileText className="size-5" />} loading={busy === 'QUOTE-pdf'} disabled={!!busy} onClick={() => saveQuote(false, true)}>
                     Salvar e gerar PDF
                   </Button>
                 )}
+                <Button variant={overLimit ? 'gold' : 'secondary'} size="lg" icon={overLimit ? <Send className="size-5" /> : <Save className="size-5" />} loading={busy === 'QUOTE'} disabled={!!busy} onClick={() => saveQuote(overLimit)}>
+                  {overLimit ? 'Salvar e pedir aprovação do desconto' : 'Salvar orçamento'}
+                </Button>
               </>
             ) : (
               <>
-                <Button variant="secondary" icon={<Save className="size-4" />} loading={busy === 'DRAFT'} disabled={!!busy} onClick={() => saveOrder('DRAFT')}>Salvar como rascunho</Button>
-                <Button variant="secondary" icon={<FileText className="size-4" />} disabled={!!busy} onClick={() => saveOrder('DRAFT', true)}>Gerar PDF (rascunho)</Button>
                 {overLimit ? (
-                  <Button variant="gold" icon={<Send className="size-4" />} loading={busy === 'REQUEST_APPROVAL'} disabled={!!busy || !s.discountReason} onClick={() => saveOrder('REQUEST_APPROVAL')}>
-                    Solicitar aprovação
+                  <Button variant="gold" size="lg" className="sm:order-last" icon={<Send className="size-5" />} loading={busy === 'REQUEST_APPROVAL'} disabled={!!busy} onClick={() => saveOrder('REQUEST_APPROVAL')}>
+                    Enviar para aprovação
                   </Button>
                 ) : (
-                  <Button variant="success" size="lg" icon={<CheckCircle2 className="size-5" />} loading={busy === 'CONFIRM'} disabled={!!busy} onClick={confirmOrder}>
+                  <Button variant="success" size="lg" className="sm:order-last" icon={<CheckCircle2 className="size-5" />} loading={busy === 'CONFIRM'} disabled={!!busy} onClick={confirmOrder}>
                     Confirmar pedido
                   </Button>
                 )}
+                <Button variant="secondary" size="lg" icon={<Save className="size-5" />} loading={busy === 'DRAFT'} disabled={!!busy} onClick={() => saveOrder('DRAFT')}>
+                  Salvar rascunho
+                </Button>
+                <Button variant="secondary" size="lg" icon={<FileText className="size-5" />} loading={busy === 'DRAFT-pdf'} disabled={!!busy} onClick={() => saveOrder('DRAFT', true)}>
+                  PDF do rascunho
+                </Button>
               </>
             )}
           </div>
-          {overLimit && !s.discountReason && <p className="mt-2 text-xs text-amber-700">Informe a justificativa do desconto na etapa “Resumo financeiro” para solicitar aprovação.</p>}
         </StepConfirm>
       )}
 
-      {/* Resumo fixo dos valores */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-white/95 shadow-[0_-4px_20px_rgba(15,35,65,0.08)] backdrop-blur lg:left-64">
-        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-8">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-            <span className="flex items-center gap-2 text-muted"><ShoppingCart className="size-4" /> {s.items.length} produto(s) • {calc.result?.totalQuantity ?? 0} un.</span>
-            <span className="text-muted">Subtotal <strong className="tabular text-ink">{formatBRL(calc.result?.grossCents ?? 0)}</strong></span>
-            {!!calc.result?.totalDiscountCents && <span className="text-muted">Descontos <strong className="tabular text-red-600">−{formatBRL(calc.result.totalDiscountCents)}</strong></span>}
-            <span className="text-base text-navy-900">Total <strong className="tabular">{formatBRL(calc.result?.totalCents ?? 0)}</strong></span>
-            {overLimit && <span className="flex items-center gap-1 text-xs font-medium text-amber-700"><ShieldAlert className="size-4" /> Desconto acima do limite</span>}
-          </div>
-          {s.step < 4 && (
-            <div className="flex gap-2">
-              {s.step > 0 && <Button variant="secondary" icon={<ArrowLeft className="size-4" />} onClick={() => go(s.step - 1)}>Voltar</Button>}
-              <Button disabled={!canNext} onClick={() => go(s.step + 1)}>
-                Avançar <ArrowRight className="size-4" />
-              </Button>
-            </div>
+      {/* Barra inferior fixa: total + navegação */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-6px_24px_rgba(15,35,65,0.10)] backdrop-blur lg:left-64">
+        {calc.error && <p className="px-4 pt-2 text-xs text-red-600 lg:px-8">{calc.error}</p>}
+        <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-3 lg:px-8">
+          <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => s.items.length && setCartOpen(true)} aria-label="Ver itens do pedido">
+            <span className="relative flex size-11 shrink-0 items-center justify-center rounded-xl bg-navy-50 text-navy-800">
+              <ShoppingCart className="size-5" />
+              {s.items.length > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-gold-500 px-1.5 text-[11px] font-semibold text-white">{s.items.length}</span>}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-xs text-muted">
+                {s.items.length ? `${s.items.length} produto(s)` : 'Nenhum produto'}
+                {!!calc.result?.totalDiscountCents && <span className="hidden text-red-600 sm:inline"> • −{formatBRL(calc.result.totalDiscountCents)}</span>}
+              </span>
+              <span className="flex items-center gap-1 whitespace-nowrap text-lg font-semibold tabular text-navy-900">
+                {formatBRL(calc.result?.totalCents ?? 0)}
+                {s.items.length > 0 && <ChevronUp className="size-4 text-muted lg:hidden" />}
+              </span>
+              {overLimit && <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700"><ShieldAlert className="size-3.5" /> Desconto acima do limite</span>}
+            </span>
+          </button>
+          {s.step > 0 && (
+            <Button variant="secondary" size="lg" className="px-3 sm:px-5" onClick={() => go(s.step - 1)} aria-label="Voltar">
+              <ArrowLeft className="size-5" />
+              <span className="hidden sm:inline">Voltar</span>
+            </Button>
+          )}
+          {s.step < 2 && (
+            <Button size="lg" disabled={!canNext} onClick={() => go(s.step + 1)}>
+              {s.step === 0 ? 'Revisar' : 'Continuar'} <ArrowRight className="size-5" />
+            </Button>
           )}
         </div>
-        {calc.error && <p className="px-4 pb-2 text-xs text-red-600 lg:px-8">{calc.error}</p>}
       </div>
 
-      <Modal
-        open={!!dupPrompt}
-        onClose={() => setDupPrompt(null)}
-        title="Produto já adicionado"
-        size="sm"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setDupPrompt(null)}>Cancelar</Button>
-            <Button variant="secondary" onClick={() => { addProduct(dupPrompt!.product, dupPrompt!.qty, 'replace'); setDupPrompt(null); }}>Substituir por {dupPrompt?.qty}</Button>
-            <Button onClick={() => { addProduct(dupPrompt!.product, dupPrompt!.qty, 'sum'); setDupPrompt(null); }}>Somar quantidade</Button>
-          </>
-        }
-      >
-        {dupPrompt && (
-          <p className="text-sm">
-            “{dupPrompt.product.name}” já está no {docLabel} com <strong>{s.items.find((i) => i.productId === dupPrompt.product.id)?.quantity}</strong> unidade(s). Deseja somar mais <strong>{dupPrompt.qty}</strong> à mesma linha?
-          </p>
-        )}
+      <Modal open={cartOpen} onClose={() => setCartOpen(false)} title={`Itens do ${docLabel}`} size="lg" footer={<Button onClick={() => setCartOpen(false)}>Fechar</Button>}>
+        <CartList items={s.items} calc={calc.result} onPatch={patchLine} onRemove={remove} />
       </Modal>
     </div>
   );
 }
 
-// ======================================================================== Etapa 1
-function StepData({ s, update, cfg, client, isQuote, sellerName, existingNumber }: { s: WizardState; update: (p: Partial<WizardState>) => void; cfg: SellerConfig; client: any; isQuote: boolean; sellerName: string; existingNumber?: string | null }) {
-  const term = cfg.paymentTerms.find((t) => t.id === s.paymentTermId);
+// ======================================================================== Navegação das etapas
+function StepBar({ current, onStep }: { current: number; onStep: (i: number) => void }) {
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <Card className="lg:col-span-2">
-        <CardTitle>{isQuote ? 'Dados do orçamento' : 'Dados do pedido'}</CardTitle>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={isQuote ? 'Número do orçamento' : 'Número do pedido'}>
-            <Input disabled value={existingNumber ?? (isQuote ? 'Gerado automaticamente ao salvar' : 'Gerado automaticamente na confirmação')} />
-          </Field>
-          <Field label="Data">
-            <Input disabled value={formatDateBR(cfg.today)} />
-          </Field>
-          <Field label="Vendedor responsável">
-            <Input disabled value={sellerName} />
-          </Field>
-          <Field label="Cliente">
-            <Input disabled value={client ? `${client.tradeName ?? client.legalName} (${formatCnpj(client.cnpj)})` : 'Carregando…'} />
-          </Field>
-          <Field label="Condição de pagamento">
-            <Select value={s.paymentTermId} onChange={(e) => update({ paymentTermId: e.target.value })}>
-              <option value="">A combinar</option>
-              {cfg.paymentTerms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Prazo de pagamento">
-            <Input disabled value={term ? (term.days ? `${term.days} dias` : 'À vista') : '—'} />
-          </Field>
-          <Field label="Previsão de entrega" hint="Opcional">
-            <Input type="date" min={cfg.today} value={s.expectedDelivery} onChange={(e) => update({ expectedDelivery: e.target.value })} />
-          </Field>
-          {isQuote && (
-            <Field label="Validade da proposta" required>
-              <Input type="date" min={cfg.today} value={s.validUntil} onChange={(e) => update({ validUntil: e.target.value })} />
-            </Field>
-          )}
-          <Field label={isQuote ? 'Observações do orçamento' : 'Observações do pedido'} className="sm:col-span-2" hint="Aparecem no PDF enviado ao cliente.">
-            <Textarea rows={3} value={s.notes} onChange={(e) => update({ notes: e.target.value })} />
-          </Field>
-        </div>
-      </Card>
-      <Card>
-        <CardTitle>Cliente</CardTitle>
-        {client ? (
-          <div className="space-y-1 text-sm">
-            <p className="font-semibold text-navy-900">{client.legalName}</p>
-            {client.tradeName && <p className="text-muted">{client.tradeName}</p>}
-            <p className="tabular">CNPJ {formatCnpj(client.cnpj)}</p>
-            {client.responsibleName && <p>Responsável: {client.responsibleName}</p>}
-            <p className="text-muted">{[client.address.city, client.address.state].filter(Boolean).join('/')}</p>
-          </div>
-        ) : (
-          <Loading />
-        )}
-        <Alert tone="navy" icon={<BadgePercent className="size-4" />}>
-          Seu desconto máximo permitido: <strong>{formatBps(cfg.maxDiscountBps)}</strong>
-        </Alert>
-      </Card>
+    <ol className="mb-5 grid grid-cols-3 gap-2" aria-label="Etapas">
+      {STEPS.map((label, i) => (
+        <li key={label}>
+          <button type="button" onClick={() => onStep(i)} disabled={i >= current} className="w-full text-left disabled:cursor-default" aria-current={i === current ? 'step' : undefined}>
+            <span className={cx('block h-1.5 rounded-full', i < current ? 'bg-gold-500' : i === current ? 'bg-navy-900' : 'bg-slate-200')} />
+            <span className={cx('mt-1.5 block truncate text-xs', i === current ? 'font-semibold text-navy-900' : 'text-muted')}>
+              {i + 1}. {label}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Stepper({ value, onChange, size = 'md' }: { value: number; onChange: (v: number) => void; size?: 'md' | 'lg' }) {
+  const btn = size === 'lg' ? 'size-11' : 'size-10';
+  return (
+    <div className="flex items-center rounded-xl border border-line bg-white">
+      <button type="button" className={cx(btn, 'flex items-center justify-center text-navy-800 active:bg-navy-50 disabled:opacity-30')} disabled={value <= 1} onClick={() => onChange(value - 1)} aria-label="Diminuir">
+        <Minus className="size-4" />
+      </button>
+      <input
+        className="w-12 bg-transparent text-center text-base font-semibold tabular outline-none"
+        inputMode="numeric"
+        value={value}
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => onChange(Math.min(1_000_000, Math.max(1, parseInt(e.target.value.replace(/\D/g, '') || '1', 10))))}
+        aria-label="Quantidade"
+      />
+      <button type="button" className={cx(btn, 'flex items-center justify-center text-navy-800 active:bg-navy-50')} onClick={() => onChange(value + 1)} aria-label="Aumentar">
+        <Plus className="size-4" />
+      </button>
     </div>
   );
 }
 
-// ======================================================================== Etapa 2
-function StepProducts({ s, cfg, onAdd, onQty, onRemove }: { s: WizardState; cfg: SellerConfig; onAdd: (p: CatalogProduct, q: number) => void; onQty: (id: string, q: number) => void; onRemove: (id: string) => void }) {
+function UnitToggle({ value, onChange, baseUnit, unitsPerBox }: { value: SaleUnit; onChange: (u: SaleUnit) => void; baseUnit: string; unitsPerBox: number | null }) {
+  if (!unitsPerBox) return <span className="inline-flex h-10 items-center rounded-xl bg-slate-100 px-3 text-sm font-medium text-muted">{baseUnit}</span>;
+  const opt = (u: SaleUnit, label: ReactNode) => (
+    <button
+      type="button"
+      onClick={() => onChange(u)}
+      aria-pressed={value === u}
+      className={cx('h-10 rounded-lg px-3 text-sm font-semibold transition', value === u ? 'bg-navy-900 text-white shadow' : 'text-navy-800')}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="inline-flex rounded-xl bg-slate-100 p-0.5" role="group" aria-label="Unidade de venda">
+      {opt('UN', baseUnit)}
+      {opt('CX', `CX ${unitsPerBox}`)}
+    </div>
+  );
+}
+
+// ======================================================================== Etapa 1: produtos
+function StepProducts({ s, cfg, onAdd, onPatch, onRemove }: { s: WizardState; cfg: SellerConfig; onAdd: (p: CatalogProduct, q: number, u: SaleUnit) => void; onPatch: (l: Line, p: Partial<Line>) => void; onRemove: (l: Line) => void }) {
   const [q, setQ] = useState('');
   const [brandId, setBrand] = useState('');
   const [categoryId, setCat] = useState('');
   const [onlyAvailable, setAvail] = useState(false);
   const dq = useDebounced(q, 250);
   const searchRef = useRef<HTMLInputElement>(null);
-  useEffect(() => searchRef.current?.focus(), []);
   const brands = useQuery({ queryKey: ['seller-brands'], queryFn: () => api<{ id: string; name: string }[]>('/seller/brands') });
   const cats = useQuery({ queryKey: ['seller-cats'], queryFn: () => api<{ id: string; name: string }[]>('/seller/categories') });
   const cat = useQuery({
@@ -503,52 +537,55 @@ function StepProducts({ s, cfg, onAdd, onQty, onRemove }: { s: WizardState; cfg:
   });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+    <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
       <div className="min-w-0">
-        <div className="sticky top-14 z-10 -mx-1 mb-4 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur">
-          <div className="grid gap-2 md:grid-cols-[1fr_180px_180px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-              <Input ref={searchRef} className="h-11 pl-9" placeholder="Pesquisar produto por nome ou código/SKU" value={q} onChange={(e) => setQ(e.target.value)} />
-            </div>
-            <Select className="h-11" value={brandId} onChange={(e) => setBrand(e.target.value)} aria-label="Filtrar por marca">
-              <option value="">Todas as marcas</option>
-              {brands.data?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </Select>
-            <Select className="h-11" value={categoryId} onChange={(e) => setCat(e.target.value)} aria-label="Filtrar por categoria">
-              <option value="">Todas as categorias</option>
-              {cats.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
+        <div className="sticky top-14 z-10 -mx-4 mb-4 border-b border-line bg-canvas/95 px-4 pb-3 pt-2 backdrop-blur lg:-mx-1 lg:px-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted" />
+            <Input ref={searchRef} type="search" enterKeyHint="search" className="h-12 rounded-xl pl-11 text-base" placeholder="Buscar produto por nome ou código" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="-mx-4 mt-2 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:px-0">
+            <button onClick={() => setBrand('')} className={cx('h-9 shrink-0 rounded-full border px-4 text-sm', !brandId ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white')}>
+              Todas
+            </button>
             {brands.data?.map((b) => (
-              <button key={b.id} onClick={() => setBrand(brandId === b.id ? '' : b.id)} className={cx('rounded-full border px-3 py-1 text-xs', brandId === b.id ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white hover:bg-navy-50')}>
+              <button key={b.id} onClick={() => setBrand(brandId === b.id ? '' : b.id)} className={cx('h-9 shrink-0 rounded-full border px-4 text-sm', brandId === b.id ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white')}>
                 {b.name}
               </button>
             ))}
-            {cfg.stockEnabled && (
-              <label className="ml-auto flex items-center gap-2 text-xs text-muted">
-                <input type="checkbox" className="accent-navy-800" checked={onlyAvailable} onChange={(e) => setAvail(e.target.checked)} /> Somente disponíveis
-              </label>
-            )}
           </div>
+          {(!!cats.data?.length || cfg.stockEnabled) && (
+            <div className="mt-2 flex items-center gap-3">
+              {!!cats.data?.length && (
+                <Select className="h-10 max-w-60" value={categoryId} onChange={(e) => setCat(e.target.value)} aria-label="Categoria">
+                  <option value="">Todas as categorias</option>
+                  {cats.data.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </Select>
+              )}
+              {cfg.stockEnabled && (
+                <label className="flex items-center gap-2 text-sm text-muted">
+                  <input type="checkbox" className="size-4 accent-navy-800" checked={onlyAvailable} onChange={(e) => setAvail(e.target.checked)} /> Só disponíveis
+                </label>
+              )}
+            </div>
+          )}
         </div>
         {cat.isLoading ? (
           <Loading label="Carregando catálogo…" />
         ) : cat.data?.brands.length === 0 ? (
-          <Card><EmptyState icon={<PackageSearch className="size-6" />} title="Nenhum produto encontrado" description="Tente outro termo de pesquisa ou remova os filtros." /></Card>
+          <Card><EmptyState icon={<PackageSearch className="size-6" />} title="Nenhum produto encontrado" description="Tente outro nome ou código, ou limpe os filtros." /></Card>
         ) : (
-          <div className={cx('space-y-8', cat.isFetching && 'opacity-70')}>
+          <div className={cx('space-y-7', cat.isFetching && 'opacity-70')}>
             {cat.data?.brands.map((b) => (
               <section key={b.id}>
                 <div className="mb-3 flex items-center gap-3">
                   <h3 className="text-base font-semibold text-navy-900">{b.name}</h3>
                   <span className="h-px flex-1 bg-gradient-to-r from-gold-300 to-transparent" />
-                  <span className="text-xs text-muted">{b.products.length} produto(s)</span>
+                  <span className="text-xs text-muted">{b.products.length}</span>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                   {b.products.map((p) => (
-                    <ProductCard key={p.id} p={p} inCart={s.items.find((i) => i.productId === p.id)?.quantity} onAdd={onAdd} stockEnabled={cfg.stockEnabled} />
+                    <ProductCard key={p.id} p={p} lines={s.items.filter((i) => i.productId === p.id)} onAdd={onAdd} stockEnabled={cfg.stockEnabled} />
                   ))}
                 </div>
               </section>
@@ -556,163 +593,206 @@ function StepProducts({ s, cfg, onAdd, onQty, onRemove }: { s: WizardState; cfg:
           </div>
         )}
       </div>
-      <aside className="xl:sticky xl:top-20 xl:h-fit">
+      <aside className="hidden xl:sticky xl:top-20 xl:block xl:h-fit">
         <Card padded={false}>
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-navy-900"><ShoppingCart className="size-4 text-gold-500" /> Itens adicionados</h3>
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-navy-900"><ShoppingCart className="size-4 text-gold-500" /> Itens escolhidos</h3>
             <span className="rounded-full bg-navy-900 px-2 py-0.5 text-xs font-semibold text-white">{s.items.length}</span>
           </div>
-          {s.items.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-muted">Nenhum produto ainda. Use “Adicionar” nos cartões.</p>
-          ) : (
-            <ul className="max-h-[55vh] divide-y divide-line overflow-y-auto">
-              {s.items.map((i) => (
-                <li key={i.productId} className="flex items-center gap-3 px-4 py-2.5">
-                  <ProductThumb fileName={i.imageFileName} alt={i.name} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{i.name}</p>
-                    <p className="text-xs text-muted">{i.sku} • {formatBRL(i.unitPriceCents * i.quantity)}</p>
-                  </div>
-                  <QtyStepper value={i.quantity} onChange={(v) => onQty(i.productId, v)} />
-                  <button className="text-muted hover:text-red-600" onClick={() => onRemove(i.productId)} aria-label={`Remover ${i.name}`}><Trash2 className="size-4" /></button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="max-h-[60vh] overflow-y-auto px-4 py-2">
+            <CartList items={s.items} calc={null} onPatch={onPatch} onRemove={onRemove} compact />
+          </div>
         </Card>
       </aside>
     </div>
   );
 }
 
-function QtyStepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex items-center rounded-lg border border-line">
-      <button className="px-1.5 py-1 text-muted hover:text-navy-900 disabled:opacity-30" disabled={value <= 1} onClick={() => onChange(value - 1)} aria-label="Diminuir"><Minus className="size-3.5" /></button>
-      <input className="w-10 bg-transparent text-center text-sm tabular outline-none" inputMode="numeric" value={value} onChange={(e) => onChange(parseInt(e.target.value.replace(/\D/g, '') || '1', 10))} aria-label="Quantidade" />
-      <button className="px-1.5 py-1 text-muted hover:text-navy-900" onClick={() => onChange(value + 1)} aria-label="Aumentar"><Plus className="size-3.5" /></button>
-    </div>
-  );
-}
-
-function ProductCard({ p, inCart, onAdd, stockEnabled }: { p: CatalogProduct; inCart?: number; onAdd: (p: CatalogProduct, q: number) => void; stockEnabled: boolean }) {
-  const [qty, setQty] = useState('1');
+function ProductCard({ p, lines, onAdd, stockEnabled }: { p: CatalogProduct; lines: Line[]; onAdd: (p: CatalogProduct, q: number, u: SaleUnit) => void; stockEnabled: boolean }) {
+  const [qty, setQty] = useState(1);
+  const [unit, setUnit] = useState<SaleUnit>('UN');
   const unavailable = stockEnabled && p.availableQty !== null && p.availableQty <= 0;
-  const add = () => onAdd(p, parseInt(qty, 10));
+  const price = p.priceCents * (unit === 'CX' && p.unitsPerBox ? p.unitsPerBox : 1);
   return (
-    <div className={cx('flex gap-3 rounded-xl border bg-white p-3 transition', inCart ? 'border-gold-300 ring-1 ring-gold-200' : 'border-line hover:border-navy-200')}>
-      <ProductThumb fileName={p.imageFileName} alt={p.name} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <p className="line-clamp-2 text-sm font-medium leading-snug text-navy-900">{p.name}</p>
-        <p className="text-xs text-muted">{p.sku} • {p.brand.name}</p>
-        <div className="mt-1 flex items-baseline justify-between gap-2">
-          <p className="text-base font-semibold tabular text-navy-900">{formatBRL(p.priceCents)}<span className="text-xs font-normal text-muted"> /{p.unit}</span></p>
-          {stockEnabled && p.availableQty !== null && <span className={cx('text-xs', unavailable ? 'text-red-600' : 'text-muted')}>{unavailable ? 'Indisponível' : `${p.availableQty} disp.`}</span>}
+    <div className={cx('rounded-2xl border bg-white p-3.5 shadow-[0_1px_2px_rgba(15,35,65,0.04)]', lines.length ? 'border-gold-300 ring-1 ring-gold-200' : 'border-line')}>
+      <div className="flex gap-3">
+        <ProductThumb fileName={p.imageFileName} alt={p.name} />
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-[15px] font-medium leading-snug text-navy-900">{p.name}</p>
+          <p className="text-xs text-muted">{p.sku}</p>
+          <p className="mt-1 text-lg font-semibold tabular text-navy-900">
+            {formatBRL(price)}
+            <span className="text-xs font-normal text-muted"> / {unit === 'CX' ? `caixa (${p.unitsPerBox} ${p.unit})` : p.unit}</span>
+          </p>
+          {stockEnabled && p.availableQty !== null && (
+            <p className={cx('text-xs', unavailable ? 'text-red-600' : 'text-muted')}>{unavailable ? 'Sem saldo em estoque' : `${p.availableQty} ${p.unit} disponíveis`}</p>
+          )}
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <Input className="h-9 w-20 text-center tabular" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => e.key === 'Enter' && add()} aria-label={`Quantidade de ${p.name}`} />
-          <Button size="sm" className="h-9 flex-1" variant={inCart ? 'secondary' : 'primary'} icon={<Plus className="size-4" />} onClick={add}>
-            {inCart ? `No pedido (${inCart})` : 'Adicionar ao pedido'}
-          </Button>
-        </div>
-        {unavailable && <p className="mt-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="size-3" /> Sem saldo em estoque.</p>}
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <UnitToggle value={unit} onChange={setUnit} baseUnit={p.unit} unitsPerBox={p.unitsPerBox} />
+        <Stepper value={qty} onChange={setQty} />
+        <Button
+          className="h-10 min-w-28 flex-1"
+          icon={<Plus className="size-4" />}
+          onClick={() => {
+            onAdd(p, qty, unit);
+            setQty(1);
+          }}
+          aria-label={`Adicionar ${p.name}`}
+        >
+          Adicionar
+        </Button>
+      </div>
+      {lines.length > 0 && (
+        <p className="mt-2 flex items-center gap-1 text-xs font-medium text-gold-700">
+          <CheckCircle2 className="size-3.5" /> No carrinho: {lines.map((l) => `${l.quantity} ${unitLabel(l)}`).join(' + ')}
+        </p>
+      )}
+      {unavailable && <p className="mt-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="size-3" /> Produto sem saldo — confirme com a empresa.</p>}
     </div>
   );
 }
 
-// ======================================================================== Etapa 3
-function StepReview({ s, cfg, calc, update, onQty, onRemove }: { s: WizardState; cfg: SellerConfig; calc: CalcResult | null; update: (p: Partial<WizardState>) => void; onQty: (id: string, q: number) => void; onRemove: (id: string) => void }) {
-  const setDisc = (pid: string, bps: number | null) => update({ items: s.items.map((i) => (i.productId === pid ? { ...i, discountBps: bps ?? 0 } : i)) });
-  if (!s.items.length) return <Card><EmptyState title="Nenhum produto adicionado" action={<Button onClick={() => update({ step: 1 })}>Adicionar produtos</Button>} /></Card>;
+function CartList({ items, calc, onPatch, onRemove, compact, allowItemDiscount }: { items: Line[]; calc: CalcResult | null; onPatch: (l: Line, p: Partial<Line>) => void; onRemove: (l: Line) => void; compact?: boolean; allowItemDiscount?: boolean }) {
+  if (!items.length) return <p className="py-8 text-center text-sm text-muted">Nenhum produto ainda. Toque em “Adicionar” nos produtos.</p>;
   return (
-    <Card padded={false}>
-      <div className="p-5 pb-3"><CardTitle className="mb-0">Revisão dos produtos</CardTitle></div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-y border-line bg-slate-50/70 text-xs uppercase tracking-wide text-muted">
-              <th className="px-4 py-2.5 text-left font-semibold">Produto</th>
-              <th className="px-4 py-2.5 text-left font-semibold">Marca</th>
-              <th className="px-4 py-2.5 text-center font-semibold">Quantidade</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Preço unit.</th>
-              {cfg.allowItemDiscount && <th className="px-4 py-2.5 text-right font-semibold">Desc. item</th>}
-              <th className="px-4 py-2.5 text-right font-semibold">Subtotal</th>
-              <th className="px-4 py-2.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {s.items.map((i, idx) => {
-              const line = calc?.lines[idx];
-              return (
-                <tr key={i.productId} className="border-b border-line/70">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <ProductThumb fileName={i.imageFileName} alt={i.name} size="sm" />
-                      <div><p className="font-medium text-navy-900">{i.name}</p><p className="text-xs text-muted">{i.sku}</p></div>
+    <ul className="divide-y divide-line">
+      {items.map((l, idx) => {
+        const line = calc?.lines[idx];
+        return (
+          <li key={`${l.productId}:${l.saleUnit}`} className="py-3">
+            <div className="flex gap-3">
+              {!compact && <ProductThumb fileName={l.imageFileName} alt={l.name} size="sm" />}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium leading-snug text-navy-900">{l.name}</p>
+                    <p className="text-xs text-muted">
+                      {l.sku} • {formatBRL(linePrice(l))}/{unitLabel(l)}
+                      {l.saleUnit === 'CX' && ` (${l.unitsPerBox} ${l.baseUnit})`}
+                    </p>
+                  </div>
+                  <button type="button" className="-mr-1 rounded-lg p-2 text-muted hover:text-red-600" onClick={() => onRemove(l)} aria-label={`Remover ${l.name}`}>
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <UnitToggle value={l.saleUnit} onChange={(u) => onPatch(l, { saleUnit: u })} baseUnit={l.baseUnit} unitsPerBox={l.unitsPerBox} />
+                  <Stepper value={l.quantity} onChange={(v) => onPatch(l, { quantity: v })} />
+                  {allowItemDiscount && (
+                    <div className="w-24">
+                      <PercentInput value={l.discountBps} onChange={(v) => onPatch(l, { discountBps: v ?? 0 })} aria-label={`Desconto do item ${l.name}`} placeholder="Desc." />
                     </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted">{i.brandName}</td>
-                  <td className="px-4 py-3"><div className="flex justify-center"><QtyStepper value={i.quantity} onChange={(v) => onQty(i.productId, v)} /></div></td>
-                  <td className="px-4 py-3 text-right tabular">{formatBRL(i.unitPriceCents)}</td>
-                  {cfg.allowItemDiscount && (
-                    <td className="px-4 py-3"><div className="ml-auto w-24"><PercentInput value={i.discountBps} onChange={(v) => setDisc(i.productId, v)} aria-label={`Desconto do item ${i.name}`} /></div></td>
                   )}
-                  <td className="px-4 py-3 text-right font-medium tabular">{line ? formatBRL(line.netBeforeGeneralCents) : '—'}</td>
-                  <td className="px-4 py-3 text-right"><button className="text-muted hover:text-red-600" onClick={() => onRemove(i.productId)} aria-label={`Remover ${i.name}`}><Trash2 className="size-4" /></button></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex justify-between p-4">
-        <Button variant="secondary" icon={<Plus className="size-4" />} onClick={() => update({ step: 1 })}>Adicionar mais produtos</Button>
-        <p className="self-center text-sm text-muted">Subtotal após descontos dos itens: <strong className="tabular text-ink">{formatBRL(calc?.subtotalAfterItemDiscountCents ?? 0)}</strong></p>
-      </div>
-    </Card>
+                  <span className="ml-auto text-base font-semibold tabular text-navy-900">{formatBRL(line ? line.netBeforeGeneralCents : linePrice(l) * l.quantity)}</span>
+                </div>
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
-// ======================================================================== Etapa 4
-function StepFinance({ s, cfg, calc, check, update }: { s: WizardState; cfg: SellerConfig; calc: CalcResult | null; check: { withinLimit: boolean; reasons: string[] } | null; update: (p: Partial<WizardState>) => void }) {
+// ======================================================================== Etapa 2: revisão, desconto e condições
+function StepReview({ s, cfg, calc, check, update, onPatch, onRemove, isQuote, onAddMore }: { s: WizardState; cfg: SellerConfig; calc: CalcResult | null; check: { withinLimit: boolean; reasons: string[] } | null; update: (p: Partial<WizardState>) => void; onPatch: (l: Line, p: Partial<Line>) => void; onRemove: (l: Line) => void; isQuote: boolean; onAddMore: () => void }) {
   const over = !!check && !check.withinLimit;
+  const maxPct = Math.floor(cfg.maxDiscountBps / 100);
+  const chips = Array.from({ length: maxPct + 1 }, (_, i) => i * 100);
+  const isChip = chips.includes(s.generalDiscountBps);
+  const [custom, setCustom] = useState(!isChip);
+  if (!s.items.length) return <Card><EmptyState title="Nenhum produto adicionado" action={<Button onClick={onAddMore}>Adicionar produtos</Button>} /></Card>;
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Card>
-        <CardTitle icon={<BadgePercent className="size-4" />}>Descontos e acréscimos</CardTitle>
-        <div className="space-y-5">
-          <Field label="Desconto do vendedor (%)" hint={`Seu limite: ${formatBps(cfg.maxDiscountBps)}. O valor é recalculado automaticamente.`}>
-            <PercentInput value={s.generalDiscountBps} invalid={over} onChange={(v) => update({ generalDiscountBps: v ?? 0 })} className="h-12 text-lg" aria-label="Desconto do vendedor em percentual" />
-          </Field>
-          {calc && (
-            <div className="rounded-lg bg-navy-50/70 p-4 text-sm">
-              <div className="flex justify-between"><span className="text-muted">Base do desconto</span><span className="tabular">{formatBRL(calc.subtotalAfterItemDiscountCents)}</span></div>
-              <div className="flex justify-between"><span className="text-muted">Desconto geral em reais</span><span className="tabular font-medium text-red-600">−{formatBRL(calc.generalDiscountCents)}</span></div>
-              <div className="flex justify-between"><span className="text-muted">Total após desconto</span><span className="tabular font-medium">{formatBRL(calc.subtotalAfterItemDiscountCents - calc.generalDiscountCents)}</span></div>
+    <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
+      <div className="space-y-5">
+        <Card>
+          <CardTitle actions={<Button variant="secondary" size="sm" icon={<Plus className="size-4" />} onClick={onAddMore}>Mais produtos</Button>}>Itens</CardTitle>
+          <CartList items={s.items} calc={calc} onPatch={onPatch} onRemove={onRemove} allowItemDiscount={cfg.allowItemDiscount} />
+        </Card>
+
+        <Card>
+          <CardTitle icon={<BadgePercent className="size-4" />}>Desconto do vendedor</CardTitle>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Desconto do vendedor">
+            {chips.map((bps) => (
+              <button
+                key={bps}
+                type="button"
+                onClick={() => {
+                  setCustom(false);
+                  update({ generalDiscountBps: bps });
+                }}
+                aria-pressed={!custom && s.generalDiscountBps === bps}
+                className={cx(
+                  'h-11 min-w-14 rounded-xl border px-4 text-base font-semibold transition',
+                  !custom && s.generalDiscountBps === bps ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white text-navy-900 active:bg-navy-50',
+                )}
+              >
+                {bps === 0 ? 'Sem' : `${bps / 100}%`}
+              </button>
+            ))}
+            <button type="button" onClick={() => setCustom(true)} aria-pressed={custom} className={cx('h-11 rounded-xl border px-4 text-sm font-medium', custom ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white text-navy-900')}>
+              Outro
+            </button>
+          </div>
+          {custom && (
+            <div className="mt-3 max-w-48">
+              <Field label="Desconto do vendedor (%)">
+                <PercentInput value={s.generalDiscountBps} invalid={over} onChange={(v) => update({ generalDiscountBps: v ?? 0 })} aria-label="Desconto do vendedor em percentual" />
+              </Field>
             </div>
           )}
-          {cfg.allowSellerFreight && (
-            <Field label="Frete" hint="Se aplicável.">
-              <MoneyInput value={s.freightCents} onChange={(v) => update({ freightCents: v ?? 0 })} />
-            </Field>
+          <p className="mt-2 text-xs text-muted">Seu limite: {formatBps(cfg.maxDiscountBps)}. Os valores são recalculados na hora.</p>
+          {calc && calc.generalDiscountCents > 0 && (
+            <p className="mt-2 text-sm">
+              Desconto de <strong className="text-red-600">−{formatBRL(calc.generalDiscountCents)}</strong> sobre {formatBRL(calc.subtotalAfterItemDiscountCents)}
+            </p>
           )}
-          {over ? (
-            <>
-              <Alert tone="amber" title="Desconto acima do seu limite">
+          {over && (
+            <div className="mt-4 space-y-3">
+              <Alert tone="amber" title="Acima do seu limite">
                 <ul className="list-disc pl-4">{check!.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
-                <p className="mt-1">O {`pedido`} não pode ser confirmado automaticamente. Reduza o desconto ou solicite aprovação do administrador.</p>
+                <p className="mt-1">Reduza o desconto ou explique o motivo para o administrador aprovar.</p>
               </Alert>
-              <Field label="Justificativa para o administrador" required>
-                <Textarea rows={3} value={s.discountReason} onChange={(e) => update({ discountReason: e.target.value })} placeholder="Ex.: cliente novo com volume alto, concorrência com preço menor…" />
+              <Field label="Motivo do desconto (para o administrador)" required>
+                <Textarea rows={3} value={s.discountReason} onChange={(e) => update({ discountReason: e.target.value })} placeholder="Ex.: cliente novo com volume alto…" />
               </Field>
-            </>
-          ) : (
-            calc && calc.totalDiscountCents > 0 && <Alert tone="green" icon={<CheckCircle2 className="size-4" />}>Desconto dentro do seu limite.</Alert>
+            </div>
           )}
-        </div>
-      </Card>
-      <SummaryCard calc={calc} />
+        </Card>
+
+        <Card>
+          <CardTitle>Condições</CardTitle>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Condição de pagamento">
+              <Select value={s.paymentTermId} onChange={(e) => update({ paymentTermId: e.target.value })}>
+                <option value="">A combinar</option>
+                {cfg.paymentTerms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Previsão de entrega" hint="Opcional">
+              <Input type="date" min={cfg.today} value={s.expectedDelivery} onChange={(e) => update({ expectedDelivery: e.target.value })} />
+            </Field>
+            {isQuote && (
+              <Field label="Validade da proposta" required>
+                <Input type="date" min={cfg.today} value={s.validUntil} onChange={(e) => update({ validUntil: e.target.value })} />
+              </Field>
+            )}
+            {cfg.allowSellerFreight && (
+              <Field label="Frete" hint="Se houver">
+                <MoneyInput value={s.freightCents} onChange={(v) => update({ freightCents: v ?? 0 })} />
+              </Field>
+            )}
+            <Field label="Observações" className="sm:col-span-2" hint="Aparecem no PDF do cliente.">
+              <Textarea rows={3} value={s.notes} onChange={(e) => update({ notes: e.target.value })} />
+            </Field>
+          </div>
+        </Card>
+      </div>
+      <div className="lg:sticky lg:top-20 lg:h-fit">
+        <SummaryCard calc={calc} />
+      </div>
     </div>
   );
 }
@@ -720,16 +800,16 @@ function StepFinance({ s, cfg, calc, check, update }: { s: WizardState; cfg: Sel
 function SummaryCard({ calc }: { calc: CalcResult | null }) {
   if (!calc) return <Card><EmptyState title="Adicione produtos para ver os valores" /></Card>;
   const rows: [string, string, string?][] = [
-    ['Quantidade total de itens', `${calc.totalQuantity} un. (${calc.itemCount} produto${calc.itemCount === 1 ? '' : 's'})`],
-    ['Subtotal bruto', formatBRL(calc.grossCents)],
-    ['Desconto por item', calc.itemDiscountCents ? `−${formatBRL(calc.itemDiscountCents)}` : formatBRL(0), calc.itemDiscountCents ? 'text-red-600' : undefined],
-    [`Desconto geral (${formatBps(calc.generalDiscountBps)})`, calc.generalDiscountCents ? `−${formatBRL(calc.generalDiscountCents)}` : formatBRL(0), calc.generalDiscountCents ? 'text-red-600' : undefined],
+    ['Quantidade', `${calc.itemCount} produto${calc.itemCount === 1 ? '' : 's'}`],
+    ['Subtotal', formatBRL(calc.grossCents)],
+    ...(calc.itemDiscountCents ? ([['Desconto nos itens', `−${formatBRL(calc.itemDiscountCents)}`, 'text-red-600']] as [string, string, string][]) : []),
+    ...(calc.generalDiscountCents ? ([[`Desconto (${formatBps(calc.generalDiscountBps)})`, `−${formatBRL(calc.generalDiscountCents)}`, 'text-red-600']] as [string, string, string][]) : []),
     ...calc.surcharges.map((x) => [`${x.name} (${formatBps(x.rateBps)})`, `+${formatBRL(x.amountCents)}`] as [string, string]),
-    ['Frete', calc.freightCents ? `+${formatBRL(calc.freightCents)}` : formatBRL(0)],
+    ...(calc.freightCents ? ([['Frete', `+${formatBRL(calc.freightCents)}`]] as [string, string][]) : []),
   ];
   return (
     <Card>
-      <CardTitle>Resumo financeiro</CardTitle>
+      <CardTitle>Resumo</CardTitle>
       <dl className="space-y-2.5 text-sm">
         {rows.map(([k, v, cls]) => (
           <div key={k} className="flex justify-between gap-4"><dt className="text-muted">{k}</dt><dd className={cx('tabular', cls)}>{v}</dd></div>
@@ -739,21 +819,23 @@ function SummaryCard({ calc }: { calc: CalcResult | null }) {
         <span className="font-medium">Valor final</span>
         <span className="text-2xl font-semibold tabular">{formatBRL(calc.totalCents)}</span>
       </div>
-      {calc.totalDiscountCents > 0 && <p className="mt-2 text-right text-xs text-muted">Desconto efetivo total: {formatBps(calc.effectiveDiscountBps)}</p>}
-      <details className="mt-4 text-xs text-muted">
-        <summary className="cursor-pointer text-navy-700">Como os valores foram calculados</summary>
+      <details className="mt-3 text-xs text-muted">
+        <summary className="cursor-pointer py-1 text-navy-700">Como os valores foram calculados</summary>
         <ol className="mt-2 list-decimal space-y-1 pl-5">{calc.steps.map((st) => <li key={st}>{st}</li>)}</ol>
       </details>
     </Card>
   );
 }
 
-// ======================================================================== Etapa 5
-function StepConfirm({ s, cfg, calc, client, sellerName, isQuote, overLimit, reasons, children }: { s: WizardState; cfg: SellerConfig; calc: CalcResult | null; client: any; sellerName: string; isQuote: boolean; overLimit: boolean; reasons: string[]; children: React.ReactNode }) {
+// ======================================================================== Etapa 3: confirmação
+function StepConfirm({ s, cfg, calc, client, sellerName, isQuote, overLimit, reasons, children }: { s: WizardState; cfg: SellerConfig; calc: CalcResult | null; client: any; sellerName: string; isQuote: boolean; overLimit: boolean; reasons: string[]; children: ReactNode }) {
   // validação dos valores pelo servidor (preços atuais do banco)
   const preview = useQuery({
     queryKey: ['preview', s.items, s.generalDiscountBps, s.freightCents],
-    queryFn: () => api<{ calc: CalcResult }>('/seller/pricing/preview', { body: { items: s.items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps })), generalDiscountBps: s.generalDiscountBps, freightCents: s.freightCents } }),
+    queryFn: () =>
+      api<{ calc: CalcResult }>('/seller/pricing/preview', {
+        body: { items: s.items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps, saleUnit: i.saleUnit })), generalDiscountBps: s.generalDiscountBps, freightCents: s.freightCents },
+      }),
     retry: false,
   });
   const server = preview.data?.calc;
@@ -761,40 +843,39 @@ function StepConfirm({ s, cfg, calc, client, sellerName, isQuote, overLimit, rea
   const term = cfg.paymentTerms.find((t) => t.id === s.paymentTermId);
   const shown = server ?? calc;
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {preview.isError && <Alert tone="red" title="Não foi possível validar os valores">{errorMessage(preview.error)}</Alert>}
-      {differs && <Alert tone="amber" title="Preços atualizados">Alguns preços do catálogo mudaram. Os valores abaixo já consideram os preços atuais (calculados pelo servidor).</Alert>}
-      {overLimit && <Alert tone="amber" title="Aprovação necessária">{reasons.join(' ')}</Alert>}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardTitle>Resumo {isQuote ? 'do orçamento' : 'do pedido'}</CardTitle>
-          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-xs uppercase tracking-wide text-muted">Cliente</dt><dd className="font-medium">{client?.legalName}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide text-muted">CNPJ</dt><dd className="tabular">{client && formatCnpj(client.cnpj)}</dd></div>
+      {differs && <Alert tone="amber" title="Preços atualizados">Alguns preços do catálogo mudaram. Os valores abaixo já usam os preços atuais.</Alert>}
+      {overLimit && <Alert tone="amber" title="Vai para aprovação do administrador">{reasons.join(' ')}</Alert>}
+      <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
+        <Card>
+          <CardTitle>{isQuote ? 'Resumo do orçamento' : 'Resumo do pedido'}</CardTitle>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+            <div className="col-span-2"><dt className="text-xs uppercase tracking-wide text-muted">Cliente</dt><dd className="font-medium">{client?.legalName}</dd><dd className="text-xs text-muted">CNPJ {client && formatCnpj(client.cnpj)}</dd></div>
             <div><dt className="text-xs uppercase tracking-wide text-muted">Vendedor</dt><dd>{sellerName}</dd></div>
             <div><dt className="text-xs uppercase tracking-wide text-muted">Data</dt><dd>{formatDateBR(cfg.today)}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide text-muted">Condição de pagamento</dt><dd>{term ? `${term.name}${term.days ? ` (${term.days} dias)` : ''}` : 'A combinar'}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide text-muted">Previsão de entrega</dt><dd>{s.expectedDelivery ? formatDateBR(s.expectedDelivery) : '—'}</dd></div>
-            {isQuote && <div><dt className="text-xs uppercase tracking-wide text-muted">Validade da proposta</dt><dd>{s.validUntil ? formatDateBR(s.validUntil) : '—'}</dd></div>}
-            <div className="sm:col-span-2"><dt className="text-xs uppercase tracking-wide text-muted">Observações</dt><dd className="whitespace-pre-wrap">{s.notes || '—'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide text-muted">Pagamento</dt><dd>{term ? `${term.name}` : 'A combinar'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide text-muted">Entrega</dt><dd>{s.expectedDelivery ? formatDateBR(s.expectedDelivery) : '—'}</dd></div>
+            {isQuote && <div><dt className="text-xs uppercase tracking-wide text-muted">Validade</dt><dd>{s.validUntil ? formatDateBR(s.validUntil) : '—'}</dd></div>}
+            {s.notes && <div className="col-span-2"><dt className="text-xs uppercase tracking-wide text-muted">Observações</dt><dd className="whitespace-pre-wrap">{s.notes}</dd></div>}
           </dl>
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-line text-xs uppercase tracking-wide text-muted"><th className="py-2 text-left font-semibold">Produto</th><th className="py-2 text-right font-semibold">Qtd.</th><th className="py-2 text-right font-semibold">Unitário</th><th className="py-2 text-right font-semibold">Subtotal</th></tr></thead>
-              <tbody>
-                {s.items.map((i, idx) => (
-                  <tr key={i.productId} className="border-b border-line/60">
-                    <td className="py-2"><p className="font-medium">{i.name}</p><p className="text-xs text-muted">{i.sku} • {i.brandName}{i.discountBps ? ` • desc. ${formatBps(i.discountBps)}` : ''}</p></td>
-                    <td className="py-2 text-right tabular">{i.quantity}</td>
-                    <td className="py-2 text-right tabular">{formatBRL(shown?.lines[idx]?.unitPriceCents ?? i.unitPriceCents)}</td>
-                    <td className="py-2 text-right font-medium tabular">{formatBRL(shown?.lines[idx]?.netBeforeGeneralCents ?? 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="mt-4 divide-y divide-line border-t border-line">
+            {s.items.map((i, idx) => (
+              <li key={`${i.productId}:${i.saleUnit}`} className="flex items-start justify-between gap-3 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium">{i.name}</p>
+                  <p className="text-xs text-muted">
+                    {i.quantity} {unitLabel(i)}
+                    {i.saleUnit === 'CX' && ` (${i.unitsPerBox} ${i.baseUnit} cada)`} × {formatBRL(shown?.lines[idx]?.unitPriceCents ?? linePrice(i))}
+                    {i.discountBps ? ` • desc. ${formatBps(i.discountBps)}` : ''}
+                  </p>
+                </div>
+                <span className="shrink-0 font-semibold tabular">{formatBRL(shown?.lines[idx]?.netBeforeGeneralCents ?? 0)}</span>
+              </li>
+            ))}
+          </ul>
         </Card>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <SummaryCard calc={shown ?? null} />
           {server && <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="size-3.5" /> Valores validados pelo servidor.</p>}
         </div>

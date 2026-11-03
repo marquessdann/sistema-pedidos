@@ -8,7 +8,7 @@ import { getSettings, today } from '../../lib/settings';
 import { fromDbDate, toDbDate } from '../../lib/validation';
 import { assertClientUsable } from './access';
 import { resolvePaymentTerm, type DocFields } from './orderService';
-import { approvalCovers, maxItemDiscount, priceItems, stockShortages, totalsData } from './pricingService';
+import { approvalCovers, lineKey, maxItemDiscount, priceItems, stockShortages, totalsData } from './pricingService';
 
 type Actor = AuditActor & { userId: string };
 
@@ -207,16 +207,24 @@ export async function conversionPreview(rep: SalesRep, quoteId: string) {
   const items = q.items.map((i) => {
     const active = i.product.active && !i.product.deletedAt && i.product.brand.active;
     if (!active) blockers.push(`O produto ${i.sku} – ${i.productName} está inativo. Edite o orçamento e remova-o.`);
+    const isBox = i.saleUnit === 'CX';
+    if (isBox && (!i.product.unitsPerBox || i.product.unitsPerBox < 2)) {
+      blockers.push(`O produto ${i.sku} – ${i.productName} não é mais vendido por caixa. Edite o orçamento.`);
+    }
+    const currentPriceCents = i.product.priceCents * (isBox ? i.product.unitsPerBox ?? 1 : 1);
     return {
       productId: i.productId,
       sku: i.sku,
       productName: i.productName,
       brandName: i.brandName,
+      saleUnit: i.saleUnit,
+      unit: i.unit,
+      unitsPerSaleUnit: i.unitsPerSaleUnit,
       quantity: i.quantity,
       discountBps: i.discountBps,
       quotePriceCents: i.unitPriceCents,
-      currentPriceCents: i.product.priceCents,
-      priceChanged: i.product.priceCents !== i.unitPriceCents,
+      currentPriceCents,
+      priceChanged: currentPriceCents !== i.unitPriceCents,
       active,
     };
   });
@@ -284,13 +292,13 @@ export async function convertQuote(rep: SalesRep, act: Actor, quoteId: string, i
 
       const keepPrices = settings.conversionPricePolicy === 'KEEP_QUOTE_PRICES';
       const priced = await priceItems(tx, {
-        items: q.items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps })),
+        items: q.items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps, saleUnit: i.saleUnit as 'UN' | 'CX' })),
         generalDiscountBps: q.generalDiscountBps,
         freightCents: q.freightCents,
         rep,
         // a regra de frete/desconto por item já foi aplicada no orçamento aprovado
         settings: { ...settings, allowItemDiscount: true, allowSellerFreight: true },
-        priceOverrides: keepPrices ? new Map(q.items.map((i) => [i.productId, i.unitPriceCents])) : undefined,
+        priceOverrides: keepPrices ? new Map(q.items.map((i) => [lineKey(i.productId, i.saleUnit as 'UN' | 'CX'), i.unitPriceCents])) : undefined,
       });
 
       // o desconto precisa estar dentro do limite ou coberto pela aprovação do orçamento
@@ -396,7 +404,9 @@ export async function duplicateQuote(rep: SalesRep, act: Actor, sourceId: string
     select: { id: true },
   });
   const ids = new Set(active.map((p) => p.id));
-  const items = source.items.filter((i) => ids.has(i.productId)).map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps }));
+  const items = source.items
+    .filter((i) => ids.has(i.productId))
+    .map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps, saleUnit: i.saleUnit as 'UN' | 'CX' }));
   if (!items.length) throw unprocessable('Nenhum produto deste orçamento está ativo no catálogo.');
   const res = await saveSellerQuote(rep, act, {
     idempotencyKey,

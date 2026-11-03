@@ -68,6 +68,17 @@ export default function Clients() {
             loading={list.isFetching}
             rowKey={(r) => r.id}
             onRowClick={(r) => nav(`/admin/clientes/${r.id}`)}
+            mobileCard={(r) => (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-navy-900">{r.tradeName ?? r.legalName}</p>
+                  {r.tradeName && <p className="truncate text-xs text-muted">{r.legalName}</p>}
+                  <p className="text-sm tabular">{formatCnpj(r.cnpj)}</p>
+                  <p className="text-xs text-muted">{[[r.city, r.state].filter(Boolean).join('/'), r.salesRep?.fullName ?? (r.availableToAllReps ? 'Todos os vendedores' : 'Sem vendedor')].filter(Boolean).join(' • ')}</p>
+                </div>
+                <ClientStatusBadge status={r.status} />
+              </div>
+            )}
             columns={[
               { key: 'name', header: 'Cliente', render: (r) => (<div><p className="font-medium text-navy-900">{r.legalName}</p>{r.tradeName && <p className="text-xs text-muted">{r.tradeName}</p>}</div>) },
               { key: 'cnpj', header: 'CNPJ', render: (r) => <span className="tabular whitespace-nowrap">{formatCnpj(r.cnpj)}</span> },

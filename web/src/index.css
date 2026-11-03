@@ -31,6 +31,9 @@
   html { -webkit-text-size-adjust: 100%; }
   body { @apply bg-canvas text-ink antialiased; font-feature-settings: "tnum" 0; }
   .tabular { font-variant-numeric: tabular-nums; }
+  /* colunas de grid nunca ficam mais largas que a tela (evita rolagem lateral no celular) */
+  .grid > * { min-width: 0; }
+  html, body { overflow-x: clip; }
   :focus-visible { outline: 2px solid var(--color-gold-500); outline-offset: 2px; }
   input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
 }

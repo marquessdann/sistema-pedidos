@@ -3,12 +3,16 @@
 // Percentuais: inteiros em pontos-base (sufixo Bps; 100 bps = 1%).
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // rhel-openssl-3.0.x = ambiente das funções serverless do Vercel
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
+  // conexão direta (sem pooler) usada pelas migrações; em ambiente local pode ser igual à DATABASE_URL
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -262,6 +266,8 @@ model Product {
   category      Category? @relation(fields: [categoryId], references: [id])
   description   String?
   unit          String    @default("UN")
+  /// Quantidade de unidades por caixa. Quando informado, o vendedor pode vender por CX ou por UN.
+  unitsPerBox   Int?
   /// RESTRITO: custo do produto
   costCents     Int       @default(0)
   /// RESTRITO: percentual tributário de referência (estimativa comercial, não é alíquota fiscal definitiva)
@@ -437,6 +443,10 @@ model OrderItem {
   productName        String
   brandName          String
   unit               String
+  /// Forma de venda escolhida: UN (unidade do produto) ou CX (caixa)
+  saleUnit           String  @default("UN")
+  /// Unidades do produto em cada unidade vendida (1 para UN; unidades por caixa para CX)
+  unitsPerSaleUnit   Int     @default(1)
   imageFileName      String?
   quantity           Int
   unitPriceCents     Int
@@ -451,7 +461,7 @@ model OrderItem {
   /// RESTRITO
   taxRefBps          Int?
 
-  @@unique([orderId, productId])
+  @@unique([orderId, productId, saleUnit])
   @@index([productId])
   @@map("order_items")
 }
@@ -549,6 +559,10 @@ model QuoteItem {
   productName        String
   brandName          String
   unit               String
+  /// Forma de venda escolhida: UN (unidade do produto) ou CX (caixa)
+  saleUnit           String  @default("UN")
+  /// Unidades do produto em cada unidade vendida (1 para UN; unidades por caixa para CX)
+  unitsPerSaleUnit   Int     @default(1)
   imageFileName      String?
   quantity           Int
   unitPriceCents     Int
@@ -561,7 +575,7 @@ model QuoteItem {
   unitCostCents      Int?
   taxRefBps          Int?
 
-  @@unique([quoteId, productId])
+  @@unique([quoteId, productId, saleUnit])
   @@index([productId])
   @@map("quote_items")
 }
@@ -716,4 +730,18 @@ model NumberSequence {
   value Int
 
   @@map("number_sequences")
+}
+
+/// Arquivos (imagens de produtos, logotipo e PDFs) guardados no próprio banco,
+/// para funcionar em hospedagem serverless (sem disco persistente).
+model StoredFile {
+  id        String   @id @default(uuid()) @db.Uuid
+  area      String
+  fileName  String   @unique
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@map("stored_files")
 }

@@ -302,8 +302,9 @@ export function checkDiscountLimit(result: CalcResult, maxDiscountBps: number): 
   if (result.generalDiscountBps > maxDiscountBps) {
     reasons.push(`Desconto geral (${formatBps(result.generalDiscountBps)}) acima do limite de ${formatBps(maxDiscountBps)}.`);
   }
-  // comparação exata em inteiros: desconto_total / bruto > limite
-  if (BigInt(result.totalDiscountCents) * 10000n > BigInt(maxDiscountBps) * BigInt(result.grossCents)) {
+  // desconto total (itens + geral) não pode passar do valor do limite aplicado ao bruto, com o mesmo
+  // arredondamento ao centavo usado no cálculo (tolerância de 1 centavo por linha por arredondamento)
+  if (result.totalDiscountCents > mulBps(result.grossCents, maxDiscountBps) + result.lines.length) {
     reasons.push(
       `Desconto total efetivo (${formatBps(result.effectiveDiscountBps)}) acima do limite de ${formatBps(maxDiscountBps)}.`,
     );

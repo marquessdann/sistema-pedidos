@@ -12,6 +12,8 @@ export interface DocItem {
   productName: string;
   brandName: string;
   unit: string;
+  saleUnit?: string;
+  unitsPerSaleUnit?: number;
   imageFileName: string | null;
   quantity: number;
   unitPriceCents: number;
@@ -26,7 +28,27 @@ export interface DocItem {
 export function ItemsTable({ items, showCost }: { items: DocItem[]; showCost?: boolean }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <ul className="divide-y divide-line md:hidden">
+        {items.map((i) => (
+          <li key={i.id} className="flex gap-3 px-4 py-3">
+            <ProductThumb fileName={i.imageFileName} alt={i.productName} size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium leading-snug text-navy-900">{i.productName}</p>
+              <p className="text-xs text-muted">{i.sku} • {i.brandName}</p>
+              <div className="mt-1 flex items-baseline justify-between gap-2 text-sm">
+                <span className="text-muted">
+                  {i.quantity} {i.unit}
+                  {i.saleUnit === 'CX' && (i.unitsPerSaleUnit ?? 1) > 1 && ` (${i.unitsPerSaleUnit} un./cx)`} × {formatBRL(i.unitPriceCents)}
+                  {i.discountBps ? ` • −${formatBps(i.discountBps)}` : ''}
+                </span>
+                <span className="shrink-0 font-semibold tabular">{formatBRL(i.grossCents - i.discountCents)}</span>
+              </div>
+              {showCost && i.unitCostCents != null && <p className="text-xs text-muted">Custo {formatBRL(i.unitCostCents * i.quantity)}</p>}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <table className="hidden w-full text-sm md:table">
         <thead>
           <tr className="border-b border-line text-xs uppercase tracking-wide text-muted">
             <th className="px-3 py-2 text-left font-semibold">Produto</th>
@@ -53,6 +75,7 @@ export function ItemsTable({ items, showCost }: { items: DocItem[]; showCost?: b
               </td>
               <td className="px-3 py-2.5 text-right tabular whitespace-nowrap">
                 {i.quantity} {i.unit}
+                {i.saleUnit === 'CX' && (i.unitsPerSaleUnit ?? 1) > 1 && <span className="block text-xs text-muted">{i.unitsPerSaleUnit} un./cx</span>}
               </td>
               <td className="px-3 py-2.5 text-right tabular">{formatBRL(i.unitPriceCents)}</td>
               <td className="px-3 py-2.5 text-right tabular text-muted">{i.discountBps ? formatBps(i.discountBps) : '—'}</td>
@@ -82,7 +105,7 @@ export interface DocTotals {
 }
 
 export function TotalsCard({ doc, internal, title = 'Resumo financeiro' }: { doc: DocTotals; internal?: boolean; title?: string }) {
-  const rows: [ReactNode, string, string?][] = [[`Subtotal bruto (${doc.totalQuantity} un.)`, formatBRL(doc.grossCents)]];
+  const rows: [ReactNode, string, string?][] = [['Subtotal bruto', formatBRL(doc.grossCents)]];
   if (doc.itemDiscountCents) rows.push(['Descontos por item', `− ${formatBRL(doc.itemDiscountCents)}`, 'text-red-600']);
   if (doc.generalDiscountCents || doc.generalDiscountBps) rows.push([`Desconto geral (${formatBps(doc.generalDiscountBps)})`, `− ${formatBRL(doc.generalDiscountCents)}`, 'text-red-600']);
   for (const s of doc.calcSnapshot?.surcharges ?? []) rows.push([s.name, `+ ${formatBRL(s.amountCents)}`]);

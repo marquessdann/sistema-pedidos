@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { ImagePlus, Lock, Save, Star, Trash2 } from 'lucide-react';
 import { formatBRL, formatBps, formatDateTimeBR, mulBps } from '@della/shared';
 import { api, errorMessage, fieldErrors, fileUrl } from '../../lib/api';
+import { shrinkImage } from '../../lib/image';
 import { useConfirm } from '../../components/ui';
 import { Alert, Badge, Button, Card, CardTitle, Field, Input, Loading, MoneyInput, PageHeader, PercentInput, Select, Textarea, Toggle, cx } from '../../components/ui';
 
@@ -15,6 +16,7 @@ const EMPTY = {
   categoryId: '',
   description: '',
   unit: 'UN',
+  unitsPerBox: null as number | null,
   costCents: 0 as number | null,
   taxRefBps: 0 as number | null,
   priceCents: null as number | null,
@@ -48,6 +50,7 @@ export default function ProductForm() {
       categoryId: p.categoryId ?? '',
       description: p.description ?? '',
       unit: p.unit,
+      unitsPerBox: p.unitsPerBox ?? null,
       costCents: p.costCents,
       taxRefBps: p.taxRefBps,
       priceCents: p.priceCents,
@@ -77,8 +80,10 @@ export default function ProductForm() {
   const upload = useMutation({
     mutationFn: (files: FileList) => {
       const fd = new FormData();
-      Array.from(files).forEach((file) => fd.append('images', file));
-      return api(`/admin/products/${id}/images`, { form: fd });
+      return (async () => {
+        for (const file of Array.from(files)) fd.append('images', await shrinkImage(file), file.name.replace(/\.\w+$/, '.jpg'));
+        return api(`/admin/products/${id}/images`, { form: fd });
+      })();
     },
     onSuccess: () => {
       toast.success('Imagens enviadas.');
@@ -136,6 +141,14 @@ export default function ProductForm() {
               <Field label="Unidade de medida" error={err('unit')} hint="Ex.: UN, CX, KG, PCT">
                 <Input value={f.unit} maxLength={10} onChange={(e) => set('unit', e.target.value.toUpperCase())} />
               </Field>
+              <Field label="Unidades por caixa" error={err('unitsPerBox')} hint="Opcional. Preenchido = o vendedor pode vender por CX ou UN (preço da caixa = preço × unidades).">
+                <Input type="number" inputMode="numeric" min={2} value={f.unitsPerBox ?? ''} onChange={(e) => set('unitsPerBox', e.target.value ? parseInt(e.target.value, 10) : null)} placeholder="Ex.: 12" />
+              </Field>
+              {f.unitsPerBox && f.unitsPerBox >= 2 && f.priceCents ? (
+                <div className="flex items-end sm:col-span-2">
+                  <p className="rounded-lg bg-gold-50 px-3 py-2 text-sm text-gold-700">Preço da caixa com {f.unitsPerBox} {f.unit}: <strong className="tabular">{formatBRL(f.priceCents * f.unitsPerBox)}</strong></p>
+                </div>
+              ) : null}
               <Field label="Descrição" className="sm:col-span-3">
                 <Textarea rows={3} value={f.description} onChange={(e) => set('description', e.target.value)} />
               </Field>
@@ -199,7 +212,7 @@ export default function ProductForm() {
                 <Button variant="secondary" className="mt-3 w-full" icon={<ImagePlus className="size-4" />} loading={upload.isPending} onClick={() => fileRef.current?.click()}>
                   Adicionar imagens
                 </Button>
-                <p className="mt-2 text-xs text-muted">PNG, JPG ou WEBP, até 5 MB cada.</p>
+                <p className="mt-2 text-xs text-muted">PNG, JPG ou WEBP. Fotos do celular são reduzidas automaticamente antes do envio.</p>
               </>
             )}
           </Card>

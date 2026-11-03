@@ -91,6 +91,14 @@ describe('motor de cálculo', () => {
     expect(r.totalCents).toBe(0);
   });
 
+  it('desconto exatamente no limite é aceito mesmo com arredondamento do centavo', () => {
+    // 5% de 449,90 = 22,495 → 22,50 (efetivo 5,001%) deve ser aceito com limite de 5%
+    const r = calculate({ items: [{ productId: 'a', quantity: 2, unitPriceCents: 18_000 }, { productId: 'b', quantity: 10, unitPriceCents: 899 }], generalDiscountBps: 500 });
+    expect(r.generalDiscountCents).toBe(2_250);
+    expect(checkDiscountLimit(r, 500).withinLimit).toBe(true);
+    expect(checkDiscountLimit(calculate({ items: [{ productId: 'a', quantity: 1, unitPriceCents: 44_990 }], generalDiscountBps: 501 }), 500).withinLimit).toBe(false);
+  });
+
   it('verifica limite de desconto do vendedor, inclusive combinado', () => {
     const items = [{ productId: 'a', quantity: 1, unitPriceCents: 100_000, discountBps: 500 }];
     expect(checkDiscountLimit(calculate({ items, generalDiscountBps: 0 }), 500).withinLimit).toBe(true);

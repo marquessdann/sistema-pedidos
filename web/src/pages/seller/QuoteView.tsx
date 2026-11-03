@@ -126,7 +126,7 @@ function ConvertModal({ quoteId, quoteNumber, onClose }: { quoteId: string; quot
                 {p.items.map((i: any) => (
                   <tr key={i.productId} className={cx('border-b border-line/60', !i.active && 'text-red-600')}>
                     <td className="py-2"><p className="font-medium">{i.productName}</p><p className="text-xs text-muted">{i.sku} • {i.brandName}</p></td>
-                    <td className="py-2 text-right tabular">{i.quantity}</td>
+                    <td className="py-2 text-right tabular">{i.quantity} {i.unit}</td>
                     <td className={cx('py-2 text-right tabular', keep && 'font-semibold')}>{formatBRL(i.quotePriceCents)}</td>
                     <td className={cx('py-2 text-right tabular', i.priceChanged && 'text-amber-700', !keep && 'font-semibold')}>{formatBRL(i.currentPriceCents)}</td>
                     <td className="py-2 text-right tabular">{i.discountBps ? formatBps(i.discountBps) : '—'}</td>

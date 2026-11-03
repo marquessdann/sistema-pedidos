@@ -3,11 +3,17 @@ import { calculate, checkDiscountLimit, type CalcResult, type DiscountCheck, typ
 import type { Tx } from '../../db';
 import { unprocessable } from '../../lib/errors';
 
+export type SaleUnit = 'UN' | 'CX';
+
 export interface LineInput {
   productId: string;
   quantity: number;
   discountBps?: number;
+  /** UN = unidade do produto; CX = caixa (exige "unidades por caixa" no cadastro) */
+  saleUnit?: SaleUnit;
 }
+
+export const lineKey = (productId: string, saleUnit: SaleUnit = 'UN') => `${productId}:${saleUnit}`;
 
 export interface PriceOptions {
   items: LineInput[];
@@ -15,7 +21,7 @@ export interface PriceOptions {
   freightCents: number;
   rep: Pick<SalesRep, 'maxDiscountBps'>;
   settings: CompanySettings;
-  /** Preços a manter (ex.: preços aprovados no orçamento). Chave: productId. */
+  /** Preços por unidade de venda a manter (ex.: preços aprovados no orçamento). Chave: lineKey(productId, saleUnit). */
   priceOverrides?: Map<string, number>;
   /** Permitir produtos inativos (somente para leitura/visualização). */
   allowInactive?: boolean;
@@ -30,6 +36,8 @@ export interface PricedLine {
   productName: string;
   brandName: string;
   unit: string;
+  saleUnit: SaleUnit;
+  unitsPerSaleUnit: number;
   imageFileName: string | null;
   quantity: number;
   unitPriceCents: number;
@@ -50,13 +58,14 @@ export interface Priced {
   products: Map<string, ProductWithBrand>;
 }
 
-/** Junta linhas repetidas do mesmo produto (somando as quantidades). */
+/** Junta linhas repetidas do mesmo produto na mesma unidade de venda (somando as quantidades). */
 export function mergeLines(items: LineInput[]): LineInput[] {
   const map = new Map<string, LineInput>();
   for (const it of items) {
-    const cur = map.get(it.productId);
+    const k = lineKey(it.productId, it.saleUnit ?? 'UN');
+    const cur = map.get(k);
     if (cur) cur.quantity += it.quantity;
-    else map.set(it.productId, { ...it });
+    else map.set(k, { ...it, saleUnit: it.saleUnit ?? 'UN' });
   }
   return [...map.values()];
 }
@@ -114,18 +123,27 @@ export async function priceItems(tx: Tx, opts: PriceOptions): Promise<Priced> {
     }
   }
 
+  const factors = items.map((i) => {
+    const p = products.get(i.productId)!;
+    if (i.saleUnit !== 'CX') return 1;
+    if (!p.unitsPerBox || p.unitsPerBox < 2) {
+      throw unprocessable(`O produto ${p.sku} – ${p.name} não é vendido por caixa. Use a unidade (${p.unit}).`, 'NO_BOX_UNIT');
+    }
+    return p.unitsPerBox;
+  });
+
   const rules = await loadRules(tx);
   const calc = calculate({
-    items: items.map((i) => {
+    items: items.map((i, idx) => {
       const p = products.get(i.productId)!;
       return {
         productId: p.id,
         quantity: i.quantity,
         discountBps: i.discountBps ?? 0,
-        unitPriceCents: opts.priceOverrides?.get(p.id) ?? p.priceCents,
+        unitPriceCents: opts.priceOverrides?.get(lineKey(p.id, i.saleUnit)) ?? p.priceCents * factors[idx],
         brandId: p.brandId,
         categoryId: p.categoryId,
-        unitCostCents: p.costCents,
+        unitCostCents: p.costCents * factors[idx],
         productTaxRefBps: p.taxRefBps,
       };
     }),
@@ -143,7 +161,9 @@ export async function priceItems(tx: Tx, opts: PriceOptions): Promise<Priced> {
       sku: p.sku,
       productName: p.name,
       brandName: p.brand.name,
-      unit: p.unit,
+      unit: items[idx].saleUnit === 'CX' ? 'CX' : p.unit,
+      saleUnit: items[idx].saleUnit ?? 'UN',
+      unitsPerSaleUnit: factors[idx],
       imageFileName: p.images[0]?.fileName ?? null,
       quantity: l.quantity,
       unitPriceCents: l.unitPriceCents,
@@ -153,7 +173,7 @@ export async function priceItems(tx: Tx, opts: PriceOptions): Promise<Priced> {
       generalDiscountShareCents: l.generalDiscountShareCents,
       netCents: l.netCents,
       surchargeCents: l.surchargeCents,
-      unitCostCents: p.costCents,
+      unitCostCents: p.costCents * factors[idx],
       taxRefBps: p.taxRefBps,
     };
   });
@@ -205,13 +225,14 @@ export function publicCalc(calc: CalcResult, includeInternal = false) {
   };
 }
 
-/** Verifica a disponibilidade em estoque (quando o controle estiver habilitado). */
+/** Verifica a disponibilidade em estoque (quando o controle estiver habilitado), em unidades do produto. */
 export function stockShortages(priced: Priced) {
-  return priced.lines
-    .map((l) => {
-      const p = priced.products.get(l.productId)!;
-      const available = p.stockQty - p.reservedQty;
-      return { productId: l.productId, sku: l.sku, name: l.productName, requested: l.quantity, available };
+  const needed = new Map<string, number>();
+  for (const l of priced.lines) needed.set(l.productId, (needed.get(l.productId) ?? 0) + l.quantity * l.unitsPerSaleUnit);
+  return [...needed.entries()]
+    .map(([productId, requested]) => {
+      const p = priced.products.get(productId)!;
+      return { productId, sku: p.sku, name: p.name, requested, available: p.stockQty - p.reservedQty };
     })
     .filter((s) => s.available < s.requested);
 }

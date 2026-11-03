@@ -43,7 +43,7 @@ describe('Autenticação', () => {
     // a senha nunca é armazenada em texto puro
     const u = await prisma.user.findUniqueOrThrow({ where: { username: 'victor' } });
     expect(u.passwordHash).not.toContain(VICTOR.password);
-    expect(u.passwordHash).toMatch(/^\$argon2id\$/);
+    expect(u.passwordHash).toMatch(/^scrypt\$32768\$/);
   });
 
   it('senha errada retorna mensagem genérica e bloqueia após 5 tentativas', async () => {

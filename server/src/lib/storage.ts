@@ -1,30 +1,21 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { storageDir } from '../config';
-import { AppError } from './errors';
+import { prisma } from '../db';
+import type { Tx } from '../db';
+import { AppError, notFound } from './errors';
 
+/**
+ * Armazenamento de arquivos no próprio PostgreSQL (tabela stored_files).
+ * Hospedagens serverless (Vercel) não têm disco persistente; guardar no banco evita depender
+ * de outro serviço e mantém o backup em um só lugar (pg_dump inclui imagens, logotipo e PDFs).
+ */
 export type StorageArea = 'products' | 'company' | 'documents';
 
-export function areaDir(area: StorageArea) {
-  return path.join(storageDir, area);
-}
+// limite do corpo das requisições no Vercel é ~4,5 MB; o navegador reduz as fotos antes de enviar
+export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
-export async function ensureStorage() {
-  for (const a of ['products', 'company', 'documents'] as StorageArea[]) {
-    await fs.mkdir(areaDir(a), { recursive: true });
-  }
-}
-
-/** Resolve o caminho de um arquivo garantindo que não saia da pasta (proteção contra path traversal). */
-export function filePath(area: StorageArea, fileName: string) {
+function checkName(fileName: string) {
   if (!/^[a-zA-Z0-9-]+\.(png|jpg|webp|pdf)$/.test(fileName)) throw new AppError(400, 'Nome de arquivo inválido.', 'BAD_FILE');
-  const p = path.join(areaDir(area), fileName);
-  if (!p.startsWith(areaDir(area) + path.sep)) throw new AppError(400, 'Nome de arquivo inválido.', 'BAD_FILE');
-  return p;
 }
-
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /** Detecta o tipo real da imagem pelos "magic bytes" (não confia na extensão nem no Content-Type). */
 export function detectImage(buf: Buffer): { ext: 'png' | 'jpg' | 'webp'; mime: string } | null {
@@ -38,24 +29,34 @@ export function detectImage(buf: Buffer): { ext: 'png' | 'jpg' | 'webp'; mime: s
   return null;
 }
 
+export async function putFile(area: StorageArea, buf: Buffer, ext: string, mimeType: string, db: Tx | typeof prisma = prisma) {
+  const fileName = `${crypto.randomUUID()}.${ext}`;
+  await db.storedFile.create({ data: { area, fileName, mimeType, sizeBytes: buf.length, data: new Uint8Array(buf) } });
+  return { fileName, mimeType };
+}
+
 export async function saveImage(area: 'products' | 'company', buf: Buffer) {
   if (buf.length === 0) throw new AppError(400, 'Arquivo vazio.', 'BAD_FILE');
-  if (buf.length > MAX_IMAGE_BYTES) throw new AppError(413, 'Imagem acima de 5 MB.', 'FILE_TOO_LARGE');
+  if (buf.length > MAX_IMAGE_BYTES) throw new AppError(413, 'Imagem acima de 4 MB.', 'FILE_TOO_LARGE');
   const type = detectImage(buf);
   if (!type) throw new AppError(415, 'Formato não suportado. Envie PNG, JPG ou WEBP.', 'BAD_FILE_TYPE');
-  const fileName = `${crypto.randomUUID()}.${type.ext}`;
-  await fs.writeFile(filePath(area, fileName), buf);
-  return { fileName, mimeType: type.mime };
+  return putFile(area, buf, type.ext, type.mime);
+}
+
+export async function getFile(area: StorageArea, fileName: string) {
+  checkName(fileName);
+  const f = await prisma.storedFile.findUnique({ where: { fileName } });
+  if (!f || f.area !== area) throw notFound('Arquivo');
+  return { data: Buffer.from(f.data), mimeType: f.mimeType, sizeBytes: f.sizeBytes };
+}
+
+export async function copyFile(area: StorageArea, fileName: string, db: Tx | typeof prisma = prisma) {
+  const src = await getFile(area, fileName).catch(() => null);
+  if (!src) return null;
+  return putFile(area, src.data, fileName.split('.').pop()!, src.mimeType, db);
 }
 
 export async function removeFile(area: StorageArea, fileName: string) {
-  await fs.rm(filePath(area, fileName), { force: true });
-}
-
-export function mimeFor(fileName: string) {
-  if (fileName.endsWith('.png')) return 'image/png';
-  if (fileName.endsWith('.jpg')) return 'image/jpeg';
-  if (fileName.endsWith('.webp')) return 'image/webp';
-  if (fileName.endsWith('.pdf')) return 'application/pdf';
-  return 'application/octet-stream';
+  checkName(fileName);
+  await prisma.storedFile.deleteMany({ where: { area, fileName } });
 }

@@ -101,6 +101,20 @@ export default function Products() {
             loading={list.isFetching}
             rowKey={(r) => r.id}
             onRowClick={(r) => nav(`/admin/produtos/${r.id}`)}
+            mobileCard={(r) => (
+              <div className="flex items-center gap-3">
+                <ProductThumb fileName={r.images[0]?.fileName} alt={r.name} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-navy-900">{r.name}</p>
+                  <p className="text-xs text-muted">{r.sku} • {r.brand.name}</p>
+                  <p className="text-xs text-muted">Custo {formatBRL(r.costCents)} • margem {r.marginBps === null ? '—' : formatBps(r.marginBps, 1)}</p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="font-semibold tabular">{formatBRL(r.priceCents)}</span>
+                  {r.active ? <Badge tone="green">Ativo</Badge> : <Badge>Inativo</Badge>}
+                </div>
+              </div>
+            )}
             columns={[
               { key: 'img', header: '', className: 'w-16', render: (r) => <ProductThumb fileName={r.images[0]?.fileName} alt={r.name} size="sm" /> },
               { key: 'name', header: 'Produto', render: (r) => (<div><p className="font-medium text-navy-900">{r.name}</p><p className="text-xs text-muted">{r.sku} • {r.brand.name}{r.category ? ` • ${r.category.name}` : ''}</p></div>) },

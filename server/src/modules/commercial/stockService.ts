@@ -73,7 +73,7 @@ async function orderProductState(tx: Tx, orderId: string, productId: string) {
 export async function applyStockForStatus(
   tx: Tx,
   settings: CompanySettings,
-  order: { id: string; number: string | null; items: { productId: string; quantity: number }[] },
+  order: { id: string; number: string | null; items: { productId: string; quantity: number; unitsPerSaleUnit?: number }[] },
   toStatus: OrderStatus,
   userId: string,
 ) {
@@ -83,7 +83,10 @@ export async function applyStockForStatus(
   const enforce = settings.blockOnInsufficientStock;
   const ref = `Pedido ${order.number ?? order.id}`;
 
-  for (const item of order.items) {
+  // estoque é controlado em unidades do produto: caixas são convertidas (qtd × unidades por caixa)
+  const perProduct = new Map<string, number>();
+  for (const it of order.items) perProduct.set(it.productId, (perProduct.get(it.productId) ?? 0) + it.quantity * (it.unitsPerSaleUnit ?? 1));
+  for (const item of [...perProduct.entries()].map(([productId, quantity]) => ({ productId, quantity }))) {
     const state = await orderProductState(tx, order.id, item.productId);
     if (toStatus === reserveAt && state.reserved === 0 && state.out === 0) {
       await moveStock(tx, { productId: item.productId, type: 'RESERVE', stockDelta: 0, reservedDelta: item.quantity, orderId: order.id, reason: ref, userId, enforce });

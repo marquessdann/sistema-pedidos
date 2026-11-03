@@ -51,7 +51,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={cx(
         'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap',
         size === 'sm' && 'h-8 px-3 text-sm',
-        size === 'md' && 'h-10 px-4 text-sm',
+        size === 'md' && 'h-11 sm:h-10 px-4 text-sm',
         size === 'lg' && 'h-12 px-6 text-base',
         VARIANTS[variant],
         className,
@@ -83,7 +83,7 @@ export function LinkButton({ to, variant = 'secondary', size = 'md', icon, child
 
 // ---------------------------------------------------------------- Campos
 const inputBase =
-  'w-full h-10 rounded-lg border border-line bg-white px-3 text-sm text-ink placeholder:text-slate-400 transition focus:border-navy-400 focus:ring-2 focus:ring-navy-100 outline-none disabled:bg-slate-50 disabled:text-slate-500';
+  'w-full h-11 sm:h-10 rounded-lg border border-line bg-white px-3 text-base sm:text-sm text-ink placeholder:text-slate-400 transition focus:border-navy-400 focus:ring-2 focus:ring-navy-100 outline-none disabled:bg-slate-50 disabled:text-slate-500';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }>(function Input(
   { className, invalid, ...rest },
@@ -367,7 +367,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
           </button>
         </div>
         <div className="overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
+        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] [&>button]:flex-1 sm:[&>button]:flex-none">{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -437,6 +437,7 @@ export function DataTable<T>({
   loading,
   empty,
   footer,
+  mobileCard,
 }: {
   columns: Column<T>[];
   rows: T[] | undefined;
@@ -447,6 +448,8 @@ export function DataTable<T>({
   loading?: boolean;
   empty?: ReactNode;
   footer?: ReactNode;
+  /** Em telas pequenas, mostra cada registro como um cartão (mais fácil de tocar no celular). */
+  mobileCard?: (r: T) => ReactNode;
 }) {
   const sortIcon = (k?: string) => {
     if (!k || !onSort) return null;
@@ -456,7 +459,22 @@ export function DataTable<T>({
   };
   return (
     <div className="relative overflow-x-auto">
-      <table className="w-full text-sm">
+      {mobileCard && (
+        <ul className="divide-y divide-line md:hidden">
+          {rows?.map((r) => (
+            <li key={rowKey(r)}>
+              {onRowClick ? (
+                <button type="button" className="block w-full px-4 py-3.5 text-left active:bg-navy-50" onClick={() => onRowClick(r)}>
+                  {mobileCard(r)}
+                </button>
+              ) : (
+                <div className="px-4 py-3.5">{mobileCard(r)}</div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <table className={cx('w-full text-sm', mobileCard && 'hidden md:table')}>
         <thead>
           <tr className="border-b border-line bg-slate-50/70">
             {columns.map((c) => (
@@ -528,13 +546,13 @@ export function Pagination({ page, pages, total, onPage }: { page: number; pages
         {total} registro{total === 1 ? '' : 's'}
       </span>
       <div className="flex items-center gap-2">
-        <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Página anterior">
+        <Button variant="secondary" size="md" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Página anterior">
           <ChevronLeft className="size-4" />
         </Button>
         <span className="tabular">
           {page} de {pages}
         </span>
-        <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Próxima página">
+        <Button variant="secondary" size="md" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Próxima página">
           <ChevronRight className="size-4" />
         </Button>
       </div>

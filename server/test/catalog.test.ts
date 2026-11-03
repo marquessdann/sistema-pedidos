@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { loginAdmin, loginVictor, makeApp, prisma, seedBase, type Fixtures } from './helpers';
+import { Agent, loginAdmin, loginVictor, makeApp, prisma, seedBase, type Fixtures } from './helpers';
 
 let app: FastifyInstance;
 let fx: Fixtures;
@@ -143,6 +143,45 @@ describe('Cadastro de produtos', () => {
     await admin.put(`/api/admin/products/${fx.p1}`, { sku: 'A-001', name: 'Produto 001', brandId: fx.brandA, priceCents: 12_000, costCents: 6_000 });
     expect(await prisma.productPriceHistory.count({ where: { productId: fx.p1 } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { action: 'PRODUCT_PRICE_CHANGED', entityId: fx.p1 } })).toBe(1);
+  });
+
+  it('imagens ficam no banco (hospedagem sem disco), são servidas autenticadas e copiadas ao duplicar', async () => {
+    const admin = await loginAdmin(app);
+    // PNG 1x1 válido
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+    const boundary = '----della';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="images"; filename="a.png"\r\nContent-Type: image/png\r\n\r\n`),
+      png,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const up = await app.inject({ method: 'POST', url: `/api/admin/products/${fx.p1}/images`, payload: body, headers: { cookie: admin.cookie, 'x-csrf-token': admin.csrf, 'content-type': `multipart/form-data; boundary=${boundary}` } });
+    expect(up.statusCode).toBe(201);
+    const fileName = up.json()[0].fileName;
+    expect(await prisma.storedFile.count({ where: { fileName } })).toBe(1);
+    const v = await loginVictor(app);
+    const img = await v.get(`/api/files/products/${fileName}`);
+    expect(img.status).toBe(200);
+    expect(img.headers['content-type']).toBe('image/png');
+    expect((await new Agent(app).get(`/api/files/products/${fileName}`)).status).toBe(401);
+    // arquivo que não é imagem é recusado
+    const bad = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="images"; filename="x.png"\r\nContent-Type: image/png\r\n\r\n`), Buffer.from('não sou imagem'), Buffer.from(`\r\n--${boundary}--\r\n`)]);
+    const r2 = await app.inject({ method: 'POST', url: `/api/admin/products/${fx.p1}/images`, payload: bad, headers: { cookie: admin.cookie, 'x-csrf-token': admin.csrf, 'content-type': `multipart/form-data; boundary=${boundary}` } });
+    expect(r2.statusCode).toBe(415);
+    const dup = await admin.post(`/api/admin/products/${fx.p1}/duplicate`);
+    const copy = await prisma.productImage.findFirstOrThrow({ where: { productId: dup.body.id } });
+    expect(copy.fileName).not.toBe(fileName);
+    expect(await prisma.storedFile.count()).toBe(2);
+  });
+
+  it('cadastra "unidades por caixa" e o vendedor vê no catálogo', async () => {
+    const admin = await loginAdmin(app);
+    const r = await admin.put(`/api/admin/products/${fx.p1}`, { sku: 'A-001', name: 'Produto 001', brandId: fx.brandA, priceCents: 10_000, costCents: 6_000, unitsPerBox: 24 });
+    expect(r.body.unitsPerBox).toBe(24);
+    expect((await admin.put(`/api/admin/products/${fx.p1}`, { sku: 'A-001', name: 'Produto 001', brandId: fx.brandA, priceCents: 10_000, unitsPerBox: 1 })).status).toBe(400);
+    const v = await loginVictor(app);
+    const cat = await v.get('/api/seller/catalog?q=A-001');
+    expect(cat.body.brands[0].products[0].unitsPerBox).toBe(24);
   });
 
   it('duplica produto como inativo', async () => {

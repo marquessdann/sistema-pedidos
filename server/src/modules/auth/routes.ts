@@ -71,6 +71,8 @@ export async function authRoutes(app: FastifyInstance) {
         throw new AppError(403, 'Cadastro de representante não encontrado. Procure o administrador.', 'NO_REP');
       }
       await prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() } });
+      // limpeza de sessões expiradas (substitui a rotina periódica, inexistente em serverless)
+      await prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
       const { csrfToken } = await createSession(req, reply, user.id);
       await audit(prisma, { userId: user.id, ip: req.ip }, 'LOGIN', 'user', user.id);
       req.user = { id: user.id, username: user.username, name: user.name, role: user.role, mustChangePassword: user.mustChangePassword };

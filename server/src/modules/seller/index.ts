@@ -29,6 +29,7 @@ const itemsSchema = z
       productId: z.string().uuid(),
       quantity: z.number().int('A quantidade deve ser um número inteiro.').positive('A quantidade deve ser maior que zero.').max(1_000_000),
       discountBps: bpsSchema.default(0),
+      saleUnit: z.enum(['UN', 'CX']).default('UN'),
     }),
   )
   .min(1, 'Adicione pelo menos um produto.')
@@ -223,6 +224,7 @@ export async function sellerRoutes(app: FastifyInstance) {
         sku: true,
         name: true,
         unit: true,
+        unitsPerBox: true,
         description: true,
         priceCents: true,
         stockQty: true,

@@ -41,6 +41,20 @@ export default function AdminQuotes() {
             sort={sort}
             onSort={setSort}
             onRowClick={(r: any) => nav(`/admin/orcamentos/${r.id}`)}
+            mobileCard={(r: any) => (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-navy-900">{r.number}</p>
+                  <p className="truncate text-sm">{r.client.tradeName ?? r.client.legalName}</p>
+                  <p className="text-xs text-muted">{formatDateBR(r.quoteDate)} • válido até {formatDateBR(r.validUntil)}</p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="font-semibold tabular">{formatBRL(r.totalCents)}</span>
+                  <QuoteStatusBadge status={r.status} />
+                  {r.convertedOrder && <span className="text-xs text-muted">→ {r.convertedOrder.number}</span>}
+                </div>
+              </div>
+            )}
             columns={[
               { key: 'number', header: 'Orçamento', sortKey: 'number', render: (r: any) => <span className="font-medium text-navy-900">{r.number}</span> },
               { key: 'date', header: 'Data', sortKey: 'date', render: (r: any) => formatDateBR(r.quoteDate) },

@@ -17,7 +17,7 @@ export default function SellerOrderView() {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [histOpen, setHistOpen] = useState(false);
-  const q = useQuery({ queryKey: ['seller-order', id], queryFn: () => api<any>(`/seller/orders/${id}`) });
+  const q = useQuery({ queryKey: ['seller-order', id], queryFn: () => api<any>(`/seller/orders/${id}`), staleTime: 0, refetchOnMount: 'always' });
   const hist = useQuery({ queryKey: ['seller-order-hist', id], queryFn: () => api<any>(`/seller/orders/${id}/history`), enabled: histOpen });
   const dup = useMutation({
     mutationFn: () => api<any>(`/seller/orders/${id}/duplicate`, { body: { idempotencyKey: newKey() } }),

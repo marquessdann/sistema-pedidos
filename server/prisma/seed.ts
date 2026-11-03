@@ -5,8 +5,10 @@
  *  - primeiro administrador a partir das variáveis ADMIN_USERNAME / ADMIN_PASSWORD;
  *  - representante Victor Badur (usuário "victor").
  *
- * Senha do Victor: em desenvolvimento, "1234" com TROCA OBRIGATÓRIA no primeiro acesso.
- * Em produção, a senha fraca é recusada: defina SEED_VICTOR_PASSWORD com uma senha forte.
+ * Senha do Victor: definida por SEED_VICTOR_PASSWORD (nunca gravada no código).
+ * Sem a variável, em desenvolvimento usa "1234" com TROCA OBRIGATÓRIA no primeiro acesso;
+ * em produção a variável é obrigatória (mínimo 10 caracteres com letras e números).
+ * Comissão inicial 10% e desconto máximo 5% (editáveis em Vendedores).
  */
 import { PrismaClient } from '@prisma/client';
 import { DEFAULT_ORDER_TRANSITIONS } from '@della/shared';
@@ -78,18 +80,20 @@ async function main() {
           name: 'Victor Badur',
           role: 'SELLER',
           passwordHash: await hashPassword(password),
-          mustChangePassword: true,
+          // senha escolhida pelo administrador via variável de ambiente: não exige troca; senha padrão de dev exige
+          mustChangePassword: !envPass,
           salesRep: {
             create: {
               fullName: 'Victor Badur',
               title: 'Representante comercial',
               maxDiscountBps: 500,
+              commissionBps: 1000,
               notes: 'Cadastro inicial. Completar CPF, telefones e comissão no painel administrativo.',
             },
           },
         },
       });
-      console.log(`✔ Representante "Victor Badur" criado (usuário: victor${envPass ? '' : ' / senha inicial: 1234'}; troca obrigatória no 1º acesso; limite de desconto inicial 5%)`);
+      console.log(`✔ Representante "Victor Badur" criado (usuário: victor${envPass ? '' : ' / senha inicial: 1234 com troca obrigatória'}; comissão 10%; desconto máximo 5%)`);
     }
   }
 }

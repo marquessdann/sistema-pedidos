@@ -35,7 +35,7 @@ export default function SellerHome() {
 
   return (
     <>
-      <div className="mb-8 overflow-hidden rounded-2xl bg-navy-900 px-6 py-7 text-white shadow-lg sm:px-8">
+      <div className="mb-6 overflow-hidden rounded-2xl bg-navy-900 px-6 py-7 text-white shadow-lg sm:px-8">
         <p className="text-sm text-gold-300">{me?.rep?.title ?? 'Representante comercial'}</p>
         <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Bem-vindo, {me?.rep?.fullName}</h1>
         <div className="mt-3 h-0.5 w-12 bg-gold-400" />

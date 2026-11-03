@@ -43,6 +43,20 @@ export default function SellerOrders() {
             sort={sort}
             onSort={setSort}
             onRowClick={(r: any) => nav(r.status === 'DRAFT' && !r.readOnly ? `/vendedor/pedidos/${r.id}` : `/vendedor/pedidos/${r.id}`)}
+            mobileCard={(r: any) => (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-navy-900">{r.number ?? 'Rascunho'}</p>
+                  <p className="truncate text-sm">{r.client.tradeName ?? r.client.legalName}</p>
+                  <p className="text-xs text-muted">{formatDateBR(r.orderDate)} • {r._count.items} item(ns){r.salesRep && r.readOnly !== false && r.salesRep.fullName ? ` • ${r.salesRep.fullName}` : ''}</p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="font-semibold tabular">{formatBRL(r.totalCents)}</span>
+                  <OrderStatusBadge status={r.status} />
+                  <ApprovalBadge status={r.discountApprovalStatus} />
+                </div>
+              </div>
+            )}
             columns={[
               { key: 'number', header: 'Nº do pedido', sortKey: 'number', render: (r: any) => <span className="font-medium text-navy-900">{r.number ?? 'Rascunho'}</span> },
               { key: 'date', header: 'Data', sortKey: 'date', render: (r: any) => formatDateBR(r.orderDate) },

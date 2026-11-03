@@ -270,7 +270,9 @@ export async function duplicateOrder(rep: SalesRep, act: AuditActor & { userId: 
     select: { id: true },
   });
   const activeIds = new Set(activeProducts.map((p) => p.id));
-  const items = source.items.filter((i) => activeIds.has(i.productId)).map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps }));
+  const items = source.items
+    .filter((i) => activeIds.has(i.productId))
+    .map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps, saleUnit: i.saleUnit as 'UN' | 'CX' }));
   if (items.length === 0) throw unprocessable('Nenhum produto deste pedido está ativo no catálogo.');
   const res = await saveSellerOrder(rep, act, {
     idempotencyKey,

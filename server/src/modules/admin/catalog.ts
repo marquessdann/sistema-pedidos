@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { mulBps } from '@della/shared';
@@ -7,7 +5,7 @@ import { prisma } from '../../db';
 import { actor } from '../../lib/auth';
 import { audit, diff } from '../../lib/audit';
 import { AppError, conflict, notFound, unprocessable } from '../../lib/errors';
-import { filePath, removeFile, saveImage } from '../../lib/storage';
+import { copyFile, removeFile, saveImage } from '../../lib/storage';
 import { bpsSchema, centsSchema, optText, pageArgs, paged, paginationSchema, reqText } from '../../lib/validation';
 
 const idParam = z.object({ id: z.string().uuid() });
@@ -25,6 +23,13 @@ const productSchema = z.object({
   categoryId: z.string().uuid().nullish().transform((v) => v ?? null),
   description: optText(4000),
   unit: z.string().trim().toUpperCase().min(1).max(10).default('UN'),
+  unitsPerBox: z
+    .number()
+    .int('Unidades por caixa: use um número inteiro.')
+    .min(2, 'Unidades por caixa: mínimo 2.')
+    .max(100_000)
+    .nullish()
+    .transform((v) => v ?? null),
   costCents: centsSchema.default(0),
   taxRefBps: bpsSchema.default(0),
   priceCents: centsSchema,
@@ -223,6 +228,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           categoryId: src.categoryId,
           description: src.description,
           unit: src.unit,
+          unitsPerBox: src.unitsPerBox,
           costCents: src.costCents,
           taxRefBps: src.taxRefBps,
           priceCents: src.priceCents,
@@ -233,10 +239,8 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         },
       });
       for (const img of src.images) {
-        const ext = img.fileName.split('.').pop();
-        const fileName = `${crypto.randomUUID()}.${ext}`;
-        await fs.copyFile(filePath('products', img.fileName), filePath('products', fileName)).catch(() => undefined);
-        await tx.productImage.create({ data: { productId: created.id, fileName, mimeType: img.mimeType, isPrimary: img.isPrimary, sortOrder: img.sortOrder } });
+        const copy = await copyFile('products', img.fileName, tx);
+        if (copy) await tx.productImage.create({ data: { productId: created.id, fileName: copy.fileName, mimeType: img.mimeType, isPrimary: img.isPrimary, sortOrder: img.sortOrder } });
       }
       await tx.productPriceHistory.create({ data: { productId: created.id, newPriceCents: created.priceCents, newCostCents: created.costCents, changedById: req.user!.id } });
       await audit(tx, actor(req), 'PRODUCT_DUPLICATED', 'product', created.id, { sourceId: id, sku });

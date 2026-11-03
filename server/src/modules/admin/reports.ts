@@ -158,7 +158,7 @@ async function buildReport(kind: string, f: Filter): Promise<Report> {
     }
     case 'top-products': {
       const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT i.sku, i."productName" AS product, i."brandName" AS brand, SUM(i.quantity)::bigint AS qty,
+        SELECT i.sku, i."productName" AS product, i."brandName" AS brand, SUM(i.quantity * i."unitsPerSaleUnit")::bigint AS qty,
                COUNT(DISTINCT o.id)::int AS orders, SUM(i."grossCents")::bigint AS gross, SUM(i."netCents")::bigint AS net
           FROM order_items i JOIN orders o ON o.id = i."orderId"
          WHERE ${orderConds(f)}
@@ -170,7 +170,7 @@ async function buildReport(kind: string, f: Filter): Promise<Report> {
           { key: 'sku', label: 'SKU', type: 'text' },
           { key: 'product', label: 'Produto', type: 'text' },
           { key: 'brand', label: 'Marca', type: 'text' },
-          { key: 'qty', label: 'Quantidade', type: 'int' },
+          { key: 'qty', label: 'Quantidade (unidades)', type: 'int' },
           { key: 'orders', label: 'Pedidos', type: 'int' },
           { key: 'gross', label: 'Valor bruto', type: 'money' },
           { key: 'net', label: 'Valor líquido', type: 'money' },

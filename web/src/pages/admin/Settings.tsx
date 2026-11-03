@@ -16,6 +16,7 @@ import {
   type OrderStatus,
 } from '@della/shared';
 import { api, errorMessage, fieldErrors, fileUrl } from '../../lib/api';
+import { shrinkImage } from '../../lib/image';
 import { Alert, Badge, Button, Card, CardTitle, DataTable, Field, Input, MaskedInput, Modal, PageHeader, PercentInput, Select, Tabs, Textarea, Toggle, cx, useConfirm } from '../../components/ui';
 
 type Tab = 'empresa' | 'comercial' | 'pagamento' | 'tributos' | 'status' | 'usuarios';
@@ -65,7 +66,7 @@ function CompanyTab() {
   const logoRef = useRef<HTMLInputElement>(null);
   const [logoVer, setLogoVer] = useState(0);
   const upload = useMutation({
-    mutationFn: (file: File) => { const fd = new FormData(); fd.append('logo', file); return api('/admin/settings/logo', { form: fd }); },
+    mutationFn: async (file: File) => { const fd = new FormData(); fd.append('logo', await shrinkImage(file, 800, true), 'logo.png'); return api('/admin/settings/logo', { form: fd }); },
     onSuccess: () => { toast.success('Logotipo atualizado.'); setLogoVer((v) => v + 1); void qc.invalidateQueries({ queryKey: ['settings'] }); },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -100,7 +101,7 @@ function CompanyTab() {
           <Button variant="secondary" icon={<ImagePlus className="size-4" />} loading={upload.isPending} onClick={() => logoRef.current?.click()}>Enviar logotipo</Button>
           {q.data?.logoFileName && <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={() => remove.mutate()}>Remover</Button>}
         </div>
-        <p className="mt-2 text-xs text-muted">PNG ou JPG, até 5 MB.</p>
+        <p className="mt-2 text-xs text-muted">PNG ou JPG (fundo transparente recomendado).</p>
         <div className="mt-6 border-t border-line pt-4">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Integrações</p>
           <ul className="space-y-1 text-sm">
