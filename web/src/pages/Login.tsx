@@ -42,7 +42,10 @@ export function LoginPage() {
             <h1 className="text-4xl font-semibold leading-tight text-white">Pedidos, orçamentos e clientes em um só lugar.</h1>
             <p className="mt-4 text-navy-200">Sistema comercial da Della Distribuidora para administração, gestão e representantes. Valores calculados com segurança no servidor e documentos prontos para o cliente.</p>
           </div>
-          <p className="text-xs text-navy-300">© {new Date().getFullYear()} Della • Uso interno e restrito</p>
+          <div className="text-xs leading-relaxed text-navy-300">
+            <p>Criado e Desenvolvido por Daniel Marques</p>
+            <p>© {new Date().getFullYear()} Todos os direitos reservados - Gestão Equipe Della</p>
+          </div>
         </div>
       </div>
       <div className="flex items-center justify-center bg-canvas px-4 py-10">
@@ -73,6 +76,10 @@ export function LoginPage() {
               Entrar
             </Button>
           </form>
+          <div className="mt-10 text-center text-xs leading-relaxed text-muted lg:hidden">
+            <p>Criado e Desenvolvido por Daniel Marques</p>
+            <p>© {new Date().getFullYear()} Todos os direitos reservados - Gestão Equipe Della</p>
+          </div>
         </div>
       </div>
     </div>
