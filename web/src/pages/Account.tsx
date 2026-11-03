@@ -62,7 +62,7 @@ export function ChangePasswordPage() {
     <div className="flex min-h-dvh items-center justify-center bg-navy-900 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 flex justify-center">
-          <Brand />
+          <Brand className="w-64" />
         </div>
         <Card className="p-6">
           <div className="mb-5 flex items-start gap-3">

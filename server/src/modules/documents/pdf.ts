@@ -144,7 +144,7 @@ function draw(doc: PDFKit.PDFDocument, d: PdfData) {
   let logoDrawn = false;
   if (d.company.logo) {
     try {
-      doc.image(d.company.logo, L, y, { fit: [150, 54] });
+      doc.image(d.company.logo, L, y + 4, { fit: [215, 52] });
       logoDrawn = true;
     } catch {
       logoDrawn = false;

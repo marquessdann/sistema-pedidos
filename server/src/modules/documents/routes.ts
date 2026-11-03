@@ -9,6 +9,7 @@ import { audit } from '../../lib/audit';
 import { AppError, notFound, unprocessable } from '../../lib/errors';
 import { getSettings } from '../../lib/settings';
 import { getFile, putFile } from '../../lib/storage';
+import { DEFAULT_LOGO_PNG } from '../../assets/defaultLogo';
 import { fromDbDate } from '../../lib/validation';
 import { docScopeForRep } from '../commercial/access';
 import { sendMail } from './mailer';
@@ -64,7 +65,8 @@ async function buildPdfData(kind: Kind, doc: Awaited<ReturnType<typeof loadDoc>>
       email: s.email,
       website: s.website,
       address: s.address,
-      logo: s.logoFileName ? (await getFile('company', s.logoFileName).catch(() => null))?.data ?? null : null,
+      // logotipo enviado em Configurações; sem ele, o logotipo oficial da Della
+      logo: (s.logoFileName ? (await getFile('company', s.logoFileName).catch(() => null))?.data : null) ?? DEFAULT_LOGO_PNG,
       footerText: s.pdfFooterText,
       quoteTerms: s.quoteTerms,
       timezone: s.timezone,

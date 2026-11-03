@@ -36,21 +36,19 @@ export function LoginPage() {
       <div className="relative hidden overflow-hidden bg-navy-900 lg:block">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(201,165,90,0.18),transparent_45%),radial-gradient(circle_at_80%_90%,rgba(82,105,156,0.35),transparent_50%)]" />
         <div className="relative flex h-full flex-col justify-between p-12">
-          <Brand />
+          <Brand className="w-64" />
           <div className="max-w-md">
             <div className="mb-6 h-0.5 w-14 bg-gold-400" />
             <h1 className="text-4xl font-semibold leading-tight text-white">Pedidos, orçamentos e clientes em um só lugar.</h1>
-            <p className="mt-4 text-navy-200">Sistema comercial da Della para administração e representantes. Valores calculados com segurança no servidor e documentos prontos para o cliente.</p>
+            <p className="mt-4 text-navy-200">Sistema comercial da Della Distribuidora para administração, gestão e representantes. Valores calculados com segurança no servidor e documentos prontos para o cliente.</p>
           </div>
           <p className="text-xs text-navy-300">© {new Date().getFullYear()} Della • Uso interno e restrito</p>
         </div>
       </div>
       <div className="flex items-center justify-center bg-canvas px-4 py-10">
         <div className="w-full max-w-sm">
-          <div className="mb-8 lg:hidden">
-            <div className="inline-block rounded-xl bg-navy-900 px-4 py-3">
-              <Brand />
-            </div>
+          <div className="mb-8 flex justify-center">
+            <img src="/brand/della-logo.webp" alt="Della Distribuidora de Produtos" className="h-auto w-56 sm:w-64" />
           </div>
           <h2 className="text-2xl font-semibold text-navy-900">Entrar</h2>
           <p className="mt-1 text-sm text-muted">Use o usuário e a senha fornecidos pela administração.</p>

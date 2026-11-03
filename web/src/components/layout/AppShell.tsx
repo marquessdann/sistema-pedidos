@@ -38,20 +38,11 @@ interface NavItem {
   short?: string;
 }
 
-export function Brand({ light = true }: { light?: boolean }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex size-9 items-center justify-center rounded-lg bg-gold-500/15 ring-1 ring-gold-400/40">
-        <svg viewBox="0 0 64 64" className="size-6" aria-hidden>
-          <path d="M18 14h13c12 0 19 7 19 18s-7 18-19 18H18z" fill="none" stroke="#C9A55A" strokeWidth="6" />
-        </svg>
-      </div>
-      <div className="leading-tight">
-        <p className={cx('text-lg font-semibold tracking-[0.2em]', light ? 'text-white' : 'text-navy-900')}>DELLA</p>
-        <p className={cx('text-[10px] uppercase tracking-[0.18em]', light ? 'text-gold-300' : 'text-gold-600')}>Pedidos de venda</p>
-      </div>
-    </div>
-  );
+/** Logotipo oficial da Della. "chip" = sobre fundo escuro (cartão branco); "plain" = sobre fundo claro. */
+export function Brand({ variant = 'chip', className }: { variant?: 'chip' | 'plain'; className?: string }) {
+  const img = <img src="/brand/della-horizontal.webp" alt="Della Distribuidora de Produtos" className={cx('h-auto w-full', variant === 'plain' && className)} draggable={false} />;
+  if (variant === 'plain') return img;
+  return <div className={cx('rounded-xl bg-white px-3 py-2.5 shadow-sm', className)}>{img}</div>;
 }
 
 export function AppShell() {
@@ -108,8 +99,8 @@ export function AppShell() {
 
   const sidebar = (
     <div className="flex h-full flex-col bg-navy-900 text-navy-100">
-      <div className="flex items-center justify-between px-5 py-5">
-        <Brand />
+      <div className="flex items-center justify-between gap-2 px-4 py-4">
+        <Brand className="w-full" />
         <button className="rounded p-1 text-navy-200 lg:hidden" onClick={() => setOpen(false)} aria-label="Fechar menu">
           <X className="size-5" />
         </button>
@@ -177,14 +168,8 @@ export function AppShell() {
       )}
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-line bg-white/90 px-4 pt-[env(safe-area-inset-top)] backdrop-blur lg:px-8">
         <div className="flex items-center gap-3">
-          <div className="lg:hidden">
-            <div className="flex items-center gap-2">
-              <svg viewBox="0 0 64 64" className="size-7" aria-hidden>
-                <rect width="64" height="64" rx="14" fill="#0F2341" />
-                <path d="M20 16h12c11 0 18 6.5 18 16s-7 16-18 16H20z" fill="none" stroke="#C9A55A" strokeWidth="6" />
-              </svg>
-              <span className="text-sm font-semibold tracking-[0.18em] text-navy-900">DELLA</span>
-            </div>
+          <div className="w-32 lg:hidden">
+            <Brand variant="plain" />
           </div>
           <span className="hidden text-sm text-muted lg:inline">{me?.company.name ?? 'Della'} • Sistema comercial</span>
         </div>

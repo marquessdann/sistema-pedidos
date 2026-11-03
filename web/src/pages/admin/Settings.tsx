@@ -94,7 +94,14 @@ function CompanyTab() {
       <Card>
         <CardTitle>Logotipo</CardTitle>
         <div className="flex h-36 items-center justify-center rounded-lg border border-dashed border-line bg-slate-50">
-          {q.data?.logoFileName ? <img src={`${fileUrl.logo}?v=${logoVer}`} alt="Logotipo" className="max-h-28 max-w-[80%] object-contain" /> : <p className="px-4 text-center text-sm text-muted">Sem logotipo: o PDF usa o nome da empresa estilizado.</p>}
+          {q.data?.logoFileName ? (
+            <img src={`${fileUrl.logo}?v=${logoVer}`} alt="Logotipo" className="max-h-28 max-w-[80%] object-contain" />
+          ) : (
+            <div className="px-4 text-center">
+              <img src="/brand/della-horizontal.webp" alt="Logotipo padrão da Della" className="mx-auto max-h-16 max-w-full object-contain" />
+              <p className="mt-2 text-xs text-muted">Logotipo oficial da Della (padrão do sistema e do PDF). Envie outro apenas se quiser substituir.</p>
+            </div>
+          )}
         </div>
         <input ref={logoRef} type="file" accept="image/png,image/jpeg" hidden onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
         <div className="mt-3 flex gap-2">
