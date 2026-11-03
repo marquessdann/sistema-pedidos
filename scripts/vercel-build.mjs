@@ -3,13 +3,16 @@
  * e executa o seed (idempotente: cria configurações, administrador e o Victor apenas se não existirem).
  */
 import { execSync } from 'node:child_process';
-import { applyCloudEnv } from './cloud-env.mjs';
+import { applyCloudEnv, pgVarNames } from './cloud-env.mjs';
 
 const env = applyCloudEnv({ ...process.env });
 if (!env.DATABASE_URL) {
-  console.error('✖ DATABASE_URL não definida. Conecte um banco PostgreSQL ao projeto no Vercel (aba Storage).');
+  console.error('✖ Banco de dados não encontrado: nenhuma variável com conexão PostgreSQL neste ambiente.');
+  console.error('  Conecte o banco (aba Storage → Neon) marcando o ambiente "Production" e faça Redeploy.');
+  console.error(`  Variáveis de banco encontradas: ${pgVarNames(process.env).join(', ') || 'nenhuma'}`);
   process.exit(1);
 }
+console.log(`• Banco: usando ${pgVarNames(process.env).join(', ')}`);
 const run = (cmd) => {
   console.log(`\n$ ${cmd}`);
   execSync(cmd, { stdio: 'inherit', env });
