@@ -118,7 +118,7 @@ export default function Products() {
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <span className="font-semibold tabular">{formatBRL(r.priceCents)}</span>
                   {isAdmin ? (
-                    r.active ? <Badge tone="green">Ativo</Badge> : <Badge>Inativo</Badge>
+                    r.active ? <Badge tone="green">Ativo</Badge> : r.priceCents <= 0 ? <Badge tone="amber">Sem preço</Badge> : <Badge>Inativo</Badge>
                   ) : (
                     <span onClick={(e) => e.stopPropagation()}>
                       <Button size="sm" variant={r.active ? 'secondary' : 'success'} loading={toggle.isPending && toggle.variables?.id === r.id} onClick={() => toggle.mutate(r)}>
@@ -143,7 +143,7 @@ export default function Products() {
                 ? [{ key: 'margin', header: 'Margem est.', align: 'right' as const, hideOnMobile: true, render: (r: P) => <span className={cx(r.marginBps !== null && r.marginBps < 0 && 'text-red-600')}>{r.marginBps === null ? '—' : formatBps(r.marginBps, 1)}</span> }]
                 : []),
               { key: 'stock', header: 'Estoque', align: 'right', hideOnMobile: true, render: (r) => `${r.stockQty} ${r.unit}` },
-              { key: 'status', header: 'Status', render: (r) => (r.active ? <Badge tone="green">Ativo</Badge> : <Badge>Inativo</Badge>) },
+              { key: 'status', header: 'Status', render: (r) => (r.active ? <Badge tone="green">Ativo</Badge> : r.priceCents <= 0 ? <Badge tone="amber">Sem preço</Badge> : <Badge>Inativo</Badge>) },
               {
                 key: 'actions',
                 header: '',

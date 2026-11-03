@@ -304,7 +304,7 @@ const PERMS: [string, string, string][] = [
   ['canApproveDiscounts', 'Aprovar descontos', 'Decidir descontos acima do limite do vendedor'],
   ['canUpdateOrderStatus', 'Atualizar andamento', 'Mudar o status dos pedidos (separação, envio…)'],
 ];
-const DEFAULT_PERMS = { canViewSales: true, canViewCommissions: true, canReleaseProducts: true, canReleaseClients: true, canApproveDiscounts: false, canUpdateOrderStatus: false };
+const DEFAULT_PERMS = { canViewSales: true, canViewCommissions: true, canReleaseProducts: true, canReleaseClients: true, canApproveDiscounts: false, canUpdateOrderStatus: true };
 
 function UsersTab() {
   const qc = useQueryClient();

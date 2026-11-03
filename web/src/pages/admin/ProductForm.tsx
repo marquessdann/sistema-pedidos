@@ -18,7 +18,7 @@ const EMPTY = {
   unit: 'UN',
   unitsPerBox: null as number | null,
   costCents: 0 as number | null,
-  taxRefBps: 0 as number | null,
+  taxRefBps: null as number | null,
   priceCents: null as number | null,
   stockQty: 0,
   active: true,
@@ -52,7 +52,7 @@ export default function ProductForm() {
       unit: p.unit,
       unitsPerBox: p.unitsPerBox ?? null,
       costCents: p.costCents,
-      taxRefBps: p.taxRefBps,
+      taxRefBps: p.taxRefBps || null,
       priceCents: p.priceCents,
       stockQty: p.stockQty,
       active: p.active,
@@ -160,7 +160,7 @@ export default function ProductForm() {
               <Field label="Preço de custo" error={err('costCents')}>
                 <MoneyInput value={f.costCents} onChange={(v) => set('costCents', v)} />
               </Field>
-              <Field label="Tributo de referência" error={err('taxRefBps')} hint="Percentual estimado para cálculo de margem.">
+              <Field label="Tributo de referência" error={err('taxRefBps')} hint="Deixe em branco se ainda não souber; a margem é recalculada quando você preencher.">
                 <PercentInput value={f.taxRefBps} onChange={(v) => set('taxRefBps', v)} />
               </Field>
               <Field label="Preço de venda (comercial)" required error={err('priceCents')} hint="Este é o preço exibido ao vendedor.">

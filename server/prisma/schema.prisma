@@ -39,7 +39,9 @@ enum OrderStatus {
   AWAITING_PICKING
   PICKING
   AWAITING_SHIPMENT
+  INVOICED
   SHIPPED
+  OUT_FOR_DELIVERY
   DELIVERED
   COMPLETED
   CANCELLED
@@ -767,7 +769,7 @@ model ManagerProfile {
   /// Aprovar/reprovar descontos acima do limite dos supervisionados
   canApproveDiscounts  Boolean      @default(false)
   /// Atualizar o andamento (status) dos pedidos dos supervisionados
-  canUpdateOrderStatus Boolean      @default(false)
+  canUpdateOrderStatus Boolean      @default(true)
   reps                 ManagerRep[]
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt

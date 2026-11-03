@@ -177,8 +177,8 @@ export default function Dashboard() {
             <Stat label="Descontos concedidos" value={formatBRL(k.discountCents)} hint={k.grossCents ? `sobre ${formatBRL(k.grossCents)} bruto` : undefined} icon={<BadgePercent className="size-5" />} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat label="Em separação" value={k.picking} icon={<PackageSearch className="size-5" />} to="/admin/pedidos?status=AWAITING_PICKING,PICKING,AWAITING_SHIPMENT" />
-            <Stat label="Enviados" value={k.shipped} icon={<Truck className="size-5" />} to="/admin/pedidos?status=SHIPPED" />
+            <Stat label="Separação e faturamento" value={k.picking} icon={<PackageSearch className="size-5" />} to="/admin/pedidos?status=AWAITING_PICKING,PICKING,AWAITING_SHIPMENT,INVOICED" />
+            <Stat label="Enviados / em rota" value={k.shipped} icon={<Truck className="size-5" />} to="/admin/pedidos?status=SHIPPED,OUT_FOR_DELIVERY" />
             <Stat label="Concluídos no período" value={k.completed} icon={<CheckCircle2 className="size-5" />} tone="green" />
             <Stat label="Orçamentos em aberto" value={k.openQuotes} icon={<FileText className="size-5" />} to="/admin/orcamentos" />
           </div>

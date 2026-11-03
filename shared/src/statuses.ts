@@ -6,7 +6,9 @@ export const ORDER_STATUSES = [
   'AWAITING_PICKING',
   'PICKING',
   'AWAITING_SHIPMENT',
+  'INVOICED',
   'SHIPPED',
+  'OUT_FOR_DELIVERY',
   'DELIVERED',
   'COMPLETED',
   'CANCELLED',
@@ -22,7 +24,9 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   AWAITING_PICKING: 'Aguardando separação',
   PICKING: 'Em separação',
   AWAITING_SHIPMENT: 'Aguardando expedição',
+  INVOICED: 'Faturado',
   SHIPPED: 'Enviado',
+  OUT_FOR_DELIVERY: 'Em rota de entrega',
   DELIVERED: 'Entregue',
   COMPLETED: 'Concluído',
   CANCELLED: 'Cancelado',
@@ -37,7 +41,9 @@ export const ORDER_TIMELINE: OrderStatus[] = [
   'AWAITING_PICKING',
   'PICKING',
   'AWAITING_SHIPMENT',
+  'INVOICED',
   'SHIPPED',
+  'OUT_FOR_DELIVERY',
   'DELIVERED',
   'COMPLETED',
 ];
@@ -52,13 +58,18 @@ export const ORDER_CONFIRMED_STATUSES: OrderStatus[] = [
   'AWAITING_PICKING',
   'PICKING',
   'AWAITING_SHIPMENT',
+  'INVOICED',
   'SHIPPED',
+  'OUT_FOR_DELIVERY',
   'DELIVERED',
   'COMPLETED',
 ];
 
-/** Status considerados "faturados/realizados" (mercadoria expedida ou entregue). */
-export const ORDER_FULFILLED_STATUSES: OrderStatus[] = ['SHIPPED', 'DELIVERED', 'COMPLETED'];
+/** Status considerados "faturados/realizados" (faturado, expedido, em rota ou entregue). */
+export const ORDER_FULFILLED_STATUSES: OrderStatus[] = ['INVOICED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'];
+
+/** Status em que a mercadoria já saiu (baixa de estoque, quando o controle estiver ligado). */
+export const ORDER_DISPATCHED_STATUSES: OrderStatus[] = ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'];
 
 /** Transições padrão (o administrador pode ajustar em Configurações). */
 export const DEFAULT_ORDER_TRANSITIONS: [OrderStatus, OrderStatus][] = [
@@ -76,7 +87,16 @@ export const DEFAULT_ORDER_TRANSITIONS: [OrderStatus, OrderStatus][] = [
   ['PICKING', 'AWAITING_SHIPMENT'],
   ['PICKING', 'CANCELLED'],
   ['AWAITING_SHIPMENT', 'SHIPPED'],
+  ['AWAITING_SHIPMENT', 'INVOICED'],
   ['AWAITING_SHIPMENT', 'CANCELLED'],
+  ['APPROVED', 'INVOICED'],
+  ['PICKING', 'INVOICED'],
+  ['INVOICED', 'SHIPPED'],
+  ['INVOICED', 'OUT_FOR_DELIVERY'],
+  ['INVOICED', 'DELIVERED'],
+  ['INVOICED', 'CANCELLED'],
+  ['SHIPPED', 'OUT_FOR_DELIVERY'],
+  ['OUT_FOR_DELIVERY', 'DELIVERED'],
   ['SHIPPED', 'DELIVERED'],
   ['DELIVERED', 'COMPLETED'],
 ];

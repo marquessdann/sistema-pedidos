@@ -38,6 +38,10 @@ const productSchema = z.object({
   internalNotes: optText(2000),
 });
 
+function assertPriceToActivate(active: boolean, priceCents: number) {
+  if (active && priceCents <= 0) throw unprocessable('Informe o preço de venda antes de ativar o produto.', 'PRICE_REQUIRED');
+}
+
 /** Margem estimada de referência = (preço − custo − tributo de referência) / preço */
 function withMargin<T extends { priceCents: number; costCents: number; taxRefBps: number }>(p: T) {
   const tax = mulBps(p.priceCents, p.taxRefBps);
@@ -164,6 +168,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.post('/products', async (req, reply) => {
     const data = productSchema.parse(req.body);
+    assertPriceToActivate(data.active, data.priceCents);
     if (await prisma.product.findUnique({ where: { sku: data.sku } })) throw conflict(`Já existe um produto com o código ${data.sku}.`, 'DUPLICATE_SKU');
     const { stockQty = 0, ...rest } = data;
     const p = await prisma.$transaction(async (tx) => {
@@ -183,6 +188,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
   app.put('/products/:id', async (req) => {
     const { id } = idParam.parse(req.params);
     const { stockQty: _ignored, ...data } = productSchema.parse(req.body); // estoque só muda por movimentação
+    assertPriceToActivate(data.active, data.priceCents);
     const before = await prisma.product.findUnique({ where: { id } });
     if (!before || before.deletedAt) throw notFound('Produto');
     if (await prisma.product.findFirst({ where: { sku: data.sku, id: { not: id } } })) throw conflict(`Já existe um produto com o código ${data.sku}.`, 'DUPLICATE_SKU');
@@ -208,6 +214,9 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
   app.post('/products/:id/active', async (req) => {
     const { id } = idParam.parse(req.params);
     const { active } = z.object({ active: z.boolean() }).parse(req.body);
+    const current = await prisma.product.findUnique({ where: { id } });
+    if (!current) throw notFound('Produto');
+    assertPriceToActivate(active, current.priceCents);
     const p = await prisma.product.update({ where: { id }, data: { active, updatedById: req.user!.id } });
     await audit(prisma, actor(req), active ? 'PRODUCT_ACTIVATED' : 'PRODUCT_DEACTIVATED', 'product', id, { sku: p.sku });
     return withMargin(p);

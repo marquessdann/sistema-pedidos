@@ -183,6 +183,7 @@ export async function managerRoutes(app: FastifyInstance) {
     const { active } = z.object({ active: z.boolean() }).parse(req.body);
     const p = await prisma.product.findFirst({ where: { id, deletedAt: null } });
     if (!p) throw notFound('Produto');
+    if (active && p.priceCents <= 0) throw unprocessable('Este produto ainda não tem preço de venda. Peça ao administrador para preenchê-lo.', 'PRICE_REQUIRED');
     await prisma.product.update({ where: { id }, data: { active, updatedById: req.user!.id } });
     await audit(prisma, actor(req), active ? 'PRODUCT_ACTIVATED' : 'PRODUCT_DEACTIVATED', 'product', id, { sku: p.sku, by: 'gestor' });
     return { id, active };

@@ -31,6 +31,7 @@ async function main() {
     stateRegistration: '91100250-73',
     email: 'financeiro@dellastore.com.br',
     phone: '41999846920',
+    address: 'Rua Assis Figueiredo, 59 – Parolin – Curitiba/PR – CEP 80630-280',
   };
   await prisma.companySettings.upsert({ where: { id: 1 }, create: { id: 1, ...company }, update: {} });
   const filled = await prisma.companySettings.updateMany({ where: { id: 1, legalName: null }, data: company });
@@ -126,6 +127,12 @@ async function seedTrainingClient() {
       commercialEmail: 'financeiro@dellastore.com.br',
       financeEmail: 'financeiro@dellastore.com.br',
       commercialPhone: '41999846920',
+      street: 'Rua Assis Figueiredo',
+      number: '59',
+      district: 'Parolin',
+      city: 'Curitiba',
+      state: 'PR',
+      cep: '80630280',
       status: 'ACTIVE',
       salesRepId: victor.id,
       notes: 'Cliente de treinamento: use para aprender e testar pedidos e orçamentos. Pedidos de teste podem ser cancelados pelo administrador.',
@@ -167,7 +174,7 @@ async function seedManager() {
           canReleaseProducts: true,
           canReleaseClients: true,
           canApproveDiscounts: false,
-          canUpdateOrderStatus: false,
+          canUpdateOrderStatus: true,
           reps: victor ? { create: [{ salesRepId: victor.id }] } : undefined,
         },
       },

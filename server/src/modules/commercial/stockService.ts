@@ -1,6 +1,7 @@
 import type { CompanySettings, OrderStatus, StockMovementType } from '@prisma/client';
 import type { Tx } from '../../db';
 import { unprocessable } from '../../lib/errors';
+import { ORDER_DISPATCHED_STATUSES } from '@della/shared';
 
 interface MoveArgs {
   productId: string;
@@ -91,7 +92,7 @@ export async function applyStockForStatus(
     if (toStatus === reserveAt && state.reserved === 0 && state.out === 0) {
       await moveStock(tx, { productId: item.productId, type: 'RESERVE', stockDelta: 0, reservedDelta: item.quantity, orderId: order.id, reason: ref, userId, enforce });
     }
-    if (toStatus === 'SHIPPED' && state.out === 0) {
+    if (ORDER_DISPATCHED_STATUSES.includes(toStatus) && state.out === 0) {
       if (state.reserved > 0) {
         await moveStock(tx, { productId: item.productId, type: 'RELEASE', stockDelta: 0, reservedDelta: -state.reserved, orderId: order.id, reason: `${ref} – reserva consumida na expedição`, userId, enforce: false });
       }
