@@ -22,7 +22,19 @@ function strong(p: string) {
 }
 
 async function main() {
-  await prisma.companySettings.upsert({ where: { id: 1 }, create: { id: 1, companyName: 'Della' }, update: {} });
+  // Dados cadastrais da empresa (aparecem no PDF). Aplicados só se ainda não foram configurados
+  // no painel (razão social vazia), para nunca sobrescrever alterações feitas pelo administrador.
+  const company = {
+    companyName: 'Della',
+    legalName: 'Della Comércio e Distribuidora de Produtos LTDA',
+    cnpj: '57534374000104',
+    stateRegistration: '91100250-73',
+    email: 'financeiro@dellastore.com.br',
+    phone: '41999846920',
+  };
+  await prisma.companySettings.upsert({ where: { id: 1 }, create: { id: 1, ...company }, update: {} });
+  const filled = await prisma.companySettings.updateMany({ where: { id: 1, legalName: null }, data: company });
+  if (filled.count) console.log('✔ Dados da empresa cadastrados (Della Comércio e Distribuidora de Produtos LTDA)');
 
   if ((await prisma.orderStatusTransition.count()) === 0) {
     await prisma.orderStatusTransition.createMany({ data: DEFAULT_ORDER_TRANSITIONS.map(([fromStatus, toStatus]) => ({ fromStatus, toStatus })) });
@@ -98,6 +110,32 @@ async function main() {
   }
 }
 
+/** Cliente de treinamento: a própria Della, ativa para o Victor testar pedidos e orçamentos. */
+async function seedTrainingClient() {
+  const cnpj = '57534374000104';
+  if (await prisma.client.findUnique({ where: { cnpj } })) return;
+  const victor = await prisma.salesRep.findFirst({ where: { user: { username: 'victor' } } });
+  if (!victor) return;
+  const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, orderBy: { createdAt: 'asc' } });
+  await prisma.client.create({
+    data: {
+      cnpj,
+      legalName: 'Della Comércio e Distribuidora de Produtos LTDA',
+      tradeName: 'Della (cliente de teste)',
+      stateRegistration: '91100250-73',
+      commercialEmail: 'financeiro@dellastore.com.br',
+      financeEmail: 'financeiro@dellastore.com.br',
+      commercialPhone: '41999846920',
+      status: 'ACTIVE',
+      salesRepId: victor.id,
+      notes: 'Cliente de treinamento: use para aprender e testar pedidos e orçamentos. Pedidos de teste podem ser cancelados pelo administrador.',
+      createdById: admin?.id,
+      updatedById: admin?.id,
+    },
+  });
+  console.log('✔ Cliente de treinamento "Della (cliente de teste)" criado para o Victor');
+}
+
 async function seedManager() {
   // ---------- Gestor Vinicius (acesso restrito ao que o Victor vende) ----------
   const username = (process.env.MANAGER_USERNAME ?? 'vinicius').trim().toLowerCase();
@@ -140,6 +178,7 @@ async function seedManager() {
 
 main()
   .then(seedManager)
+  .then(seedTrainingClient)
   .catch((e) => {
     console.error(e);
     process.exit(1);
