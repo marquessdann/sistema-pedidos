@@ -20,7 +20,12 @@ type Kind = 'orders' | 'quotes';
 
 /** Verifica se o usuário pode acessar o pedido/orçamento (admin: todos; vendedor: os seus, salvo permissão). */
 async function loadDoc(req: FastifyRequest, kind: Kind, id: string) {
-  const scope = req.user!.role === 'ADMIN' ? {} : docScopeForRep(req.rep!);
+  const scope =
+    req.user!.role === 'ADMIN'
+      ? {}
+      : req.user!.role === 'MANAGER'
+        ? { salesRepId: { in: req.manager?.perms.canViewSales ? req.manager.repIds : [] } }
+        : docScopeForRep(req.rep!);
   const include = {
     client: true,
     salesRep: { select: { fullName: true, phone: true, contactPhone: true, email: true } },

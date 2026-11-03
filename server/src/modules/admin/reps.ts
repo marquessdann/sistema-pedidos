@@ -111,23 +111,81 @@ export async function adminRepRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // Administradores adicionais
+  // Administradores e gestores
   app.get('/users', async () =>
     prisma.user.findMany({
       orderBy: [{ role: 'asc' }, { name: 'asc' }],
-      select: { id: true, username: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true, mustChangePassword: true },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        active: true,
+        lastLoginAt: true,
+        createdAt: true,
+        mustChangePassword: true,
+        managerProfile: { include: { reps: { select: { salesRepId: true } } } },
+      },
     }),
   );
 
+  const managerSchema = z.object({
+    canViewSales: z.boolean().default(true),
+    canViewCommissions: z.boolean().default(true),
+    canReleaseProducts: z.boolean().default(true),
+    canReleaseClients: z.boolean().default(true),
+    canApproveDiscounts: z.boolean().default(false),
+    canUpdateOrderStatus: z.boolean().default(false),
+    repIds: z.array(z.string().uuid()).max(100).default([]),
+  });
+
   app.post('/users', async (req, reply) => {
-    const b = z.object({ username: usernameSchema, name: reqText(120), password: passwordSchema }).parse(req.body);
+    const b = z
+      .object({ username: usernameSchema, name: reqText(120), password: passwordSchema, role: z.enum(['ADMIN', 'MANAGER']).default('ADMIN'), manager: managerSchema.optional() })
+      .parse(req.body);
     if (await prisma.user.findUnique({ where: { username: b.username } })) throw conflict('Este nome de usuário já está em uso.', 'DUPLICATE_USERNAME');
-    const u = await prisma.user.create({
-      data: { username: b.username, name: b.name, role: 'ADMIN', passwordHash: await hashPassword(b.password), mustChangePassword: true },
-      select: { id: true, username: true, name: true, role: true, active: true },
+    const passwordHash = await hashPassword(b.password);
+    const u = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { username: b.username, name: b.name, role: b.role, passwordHash, mustChangePassword: true },
+        select: { id: true, username: true, name: true, role: true, active: true },
+      });
+      if (b.role === 'MANAGER') {
+        const { repIds, ...perms } = managerSchema.parse(b.manager ?? {});
+        await tx.managerProfile.create({ data: { userId: created.id, ...perms, reps: { create: repIds.map((salesRepId) => ({ salesRepId })) } } });
+      }
+      await audit(tx, actor(req), b.role === 'MANAGER' ? 'MANAGER_CREATED' : 'ADMIN_CREATED', 'user', created.id, { username: created.username, name: created.name, manager: b.manager });
+      return created;
     });
-    await audit(prisma, actor(req), 'ADMIN_CREATED', 'user', u.id, { username: u.username, name: u.name });
     return reply.status(201).send(u);
+  });
+
+  app.put('/users/:id/manager', async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { repIds, ...perms } = managerSchema.parse(req.body);
+    const u = await prisma.user.findUnique({ where: { id }, include: { managerProfile: true } });
+    if (!u || u.role !== 'MANAGER' || !u.managerProfile) throw notFound('Gestor');
+    const reps = await prisma.salesRep.count({ where: { id: { in: repIds }, deletedAt: null } });
+    if (reps !== repIds.length) throw conflict('Vendedor inválido na lista de supervisionados.');
+    await prisma.$transaction(async (tx) => {
+      await tx.managerProfile.update({ where: { id: u.managerProfile!.id }, data: perms });
+      await tx.managerRep.deleteMany({ where: { managerId: u.managerProfile!.id } });
+      await tx.managerRep.createMany({ data: repIds.map((salesRepId) => ({ managerId: u.managerProfile!.id, salesRepId })) });
+      await audit(tx, actor(req), 'MANAGER_PERMISSIONS_CHANGED', 'user', id, { ...perms, repIds });
+    });
+    return { ok: true };
+  });
+
+  app.post('/users/:id/reset-password', async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { password } = z.object({ password: passwordSchema }).parse(req.body);
+    const u = await prisma.user.findUnique({ where: { id } });
+    if (!u || u.role === 'SELLER') throw notFound('Usuário');
+    if (id === req.user!.id) throw conflict('Para trocar a sua própria senha use “Minha conta”.');
+    await prisma.user.update({ where: { id }, data: { passwordHash: await hashPassword(password), mustChangePassword: true, lockedUntil: null, failedLoginCount: 0 } });
+    await destroyUserSessions(id);
+    await audit(prisma, actor(req), 'USER_PASSWORD_RESET', 'user', id);
+    return { ok: true };
   });
 
   app.post('/users/:id/active', async (req) => {
@@ -135,7 +193,7 @@ export async function adminRepRoutes(app: FastifyInstance) {
     const { active } = z.object({ active: z.boolean() }).parse(req.body);
     if (id === req.user!.id) throw conflict('Você não pode desativar o seu próprio usuário.');
     const u = await prisma.user.findUnique({ where: { id } });
-    if (!u || u.role !== 'ADMIN') throw notFound('Administrador');
+    if (!u || u.role === 'SELLER') throw notFound('Usuário');
     await prisma.user.update({ where: { id }, data: { active } });
     if (!active) await destroyUserSessions(id);
     await audit(prisma, actor(req), active ? 'ADMIN_ACTIVATED' : 'ADMIN_BLOCKED', 'user', id);

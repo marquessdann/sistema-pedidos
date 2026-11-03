@@ -32,6 +32,7 @@ async function mePayload(req: FastifyRequest, csrfToken?: string) {
           contactPhone: rep.contactPhone,
         }
       : null,
+    manager: req.manager ? { perms: req.manager.perms, repIds: req.manager.repIds } : null,
     csrfToken: csrfToken ?? req.csrfToken,
     company: { name: settings.companyName, timezone: settings.timezone, hasLogo: !!settings.logoFileName },
   };
@@ -77,6 +78,12 @@ export async function authRoutes(app: FastifyInstance) {
       await audit(prisma, { userId: user.id, ip: req.ip }, 'LOGIN', 'user', user.id);
       req.user = { id: user.id, username: user.username, name: user.name, role: user.role, mustChangePassword: user.mustChangePassword };
       req.rep = user.salesRep;
+      if (user.role === 'MANAGER') {
+        const m = await prisma.managerProfile.findUnique({ where: { userId: user.id }, include: { reps: true } });
+        if (!m) throw new AppError(403, 'Perfil de gestor não configurado. Procure o administrador.', 'NO_MANAGER_PROFILE');
+        const { canViewSales, canViewCommissions, canReleaseProducts, canReleaseClients, canApproveDiscounts, canUpdateOrderStatus } = m;
+        req.manager = { id: m.id, perms: { canViewSales, canViewCommissions, canReleaseProducts, canReleaseClients, canApproveDiscounts, canUpdateOrderStatus }, repIds: m.reps.map((r) => r.salesRepId) };
+      }
       return mePayload(req, csrfToken);
     },
   );

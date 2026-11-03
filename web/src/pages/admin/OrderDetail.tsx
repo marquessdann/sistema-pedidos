@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { ArrowRightLeft, RotateCcw, ScrollText, Warehouse } from 'lucide-react';
 import { ORDER_STATUS_LABELS, ORDER_TERMINAL_STATUSES, STOCK_MOVEMENT_LABELS, formatCnpj, formatDateBR, formatDateTimeBR, formatPhone, type OrderStatus } from '@della/shared';
 import { api, errorMessage } from '../../lib/api';
+import { useRole } from '../../lib/auth';
 import { AUDIT_LABELS } from '../../lib/labels';
 import { Alert, Button, Card, CardTitle, ErrorState, Field, KeyValue, Loading, Modal, PageHeader, Select, Textarea } from '../../components/ui';
 import { ApprovalBadge, OrderStatusBadge, OrderTimeline, PdfActions } from '../../components/common';
@@ -12,6 +13,7 @@ import { ItemsTable, TotalsCard } from '../../components/docs';
 
 export default function AdminOrderDetail() {
   const { id } = useParams();
+  const { isAdmin } = useRole();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['admin-order', id], queryFn: () => api<any>(`/admin/orders/${id}`) });
   const [modal, setModal] = useState<null | 'status' | 'reopen'>(null);
@@ -45,15 +47,16 @@ export default function AdminOrderDetail() {
         actions={
           o.status !== 'DRAFT' && (
             terminal ? (
+              isAdmin && 
               <Button variant="secondary" icon={<RotateCcw className="size-4" />} onClick={() => { setTo('CREATED'); setModal('reopen'); }}>Reabrir pedido</Button>
             ) : (
-              <Button icon={<ArrowRightLeft className="size-4" />} disabled={!o.allowedTransitions.length} onClick={() => { setTo(o.allowedTransitions[0] ?? ''); setModal('status'); }}>Alterar status</Button>
+              o.allowedTransitions.length > 0 && <Button icon={<ArrowRightLeft className="size-4" />} disabled={!o.allowedTransitions.length} onClick={() => { setTo(o.allowedTransitions[0] ?? ''); setModal('status'); }}>Alterar status</Button>
             )
           )
         }
       />
       {o.discountApprovalStatus === 'PENDING' && (
-        <div className="mb-4"><Alert tone="amber" title="Desconto aguardando decisão">Este pedido tem um desconto acima do limite do vendedor. Decida em <Link className="underline" to="/admin/aprovacoes">Aprovações</Link>.</Alert></div>
+        <div className="mb-4"><Alert tone="amber" title="Desconto aguardando decisão">Este pedido tem um desconto acima do limite do vendedor. Decida em <Link className="underline" to="/admin/aprovacoes">Aprovações</Link> (administrador ou gestor com permissão).</Alert></div>
       )}
       {o.status === 'CANCELLED' && o.cancelReason && <div className="mb-4"><Alert tone="red" title="Pedido cancelado">{o.cancelReason}</Alert></div>}
       <div className="grid gap-6 xl:grid-cols-3">
@@ -62,7 +65,7 @@ export default function AdminOrderDetail() {
             <CardTitle>Cliente e condições</CardTitle>
             <KeyValue
               items={[
-                ['Cliente', <Link className="text-navy-700 hover:underline" to={`/admin/clientes/${o.client.id}`}>{o.client.legalName}</Link>],
+                ['Cliente', isAdmin ? <Link className="text-navy-700 hover:underline" to={`/admin/clientes/${o.client.id}`}>{o.client.legalName}</Link> : o.client.legalName],
                 ['CNPJ', formatCnpj(o.client.cnpj)],
                 ['Contato', [o.client.responsibleName, o.client.commercialPhone && formatPhone(o.client.commercialPhone), o.client.commercialEmail].filter(Boolean).join(' • ')],
                 ['Vendedor', o.salesRep.fullName],
@@ -75,7 +78,7 @@ export default function AdminOrderDetail() {
           </Card>
           <Card padded={false}>
             <div className="p-5 pb-2"><CardTitle className="mb-0">Itens do pedido</CardTitle></div>
-            <ItemsTable items={o.items} showCost />
+            <ItemsTable items={o.items} showCost={isAdmin} />
           </Card>
           {o.approvals.length > 0 && (
             <Card>
@@ -100,7 +103,7 @@ export default function AdminOrderDetail() {
               </ul>
             </Card>
           )}
-          <Card>
+          {o.audit.length > 0 && <Card>
             <CardTitle icon={<ScrollText className="size-4" />}>Auditoria do pedido</CardTitle>
             <ul className="space-y-2 text-sm">
               {o.audit.map((a: any) => (
@@ -110,10 +113,10 @@ export default function AdminOrderDetail() {
                 </li>
               ))}
             </ul>
-          </Card>
+          </Card>}
         </div>
         <div className="space-y-6">
-          <TotalsCard doc={o} internal />
+          <TotalsCard doc={o} internal={isAdmin} />
           <Card>
             <CardTitle>Processo do pedido</CardTitle>
             <OrderTimeline status={o.status} history={o.statusHistory} />

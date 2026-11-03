@@ -96,7 +96,7 @@ export function AccountPage() {
             items={[
               ['Nome', me?.rep?.fullName ?? me?.user.name],
               ['Usuário', me?.user.username],
-              ['Perfil', me?.user.role === 'ADMIN' ? 'Administrador' : me?.rep?.title],
+              ['Perfil', me?.user.role === 'ADMIN' ? 'Administrador (acesso total)' : me?.user.role === 'MANAGER' ? 'Gestor' : me?.rep?.title],
               ...(me?.rep
                 ? ([
                     ['Telefone', me.rep.phone ? formatPhone(me.rep.phone) : null],

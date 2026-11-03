@@ -16,10 +16,26 @@ export interface AuthUser {
   mustChangePassword: boolean;
 }
 
+export type ManagerPermission =
+  | 'canViewSales'
+  | 'canViewCommissions'
+  | 'canReleaseProducts'
+  | 'canReleaseClients'
+  | 'canApproveDiscounts'
+  | 'canUpdateOrderStatus';
+
+export interface ManagerContext {
+  id: string;
+  perms: Record<ManagerPermission, boolean>;
+  /** vendedores supervisionados */
+  repIds: string[];
+}
+
 declare module 'fastify' {
   interface FastifyRequest {
     user: AuthUser | null;
     rep: SalesRep | null;
+    manager: ManagerContext | null;
     sessionId: string | null;
     csrfToken: string | null;
   }
@@ -68,13 +84,14 @@ export async function destroyUserSessions(userId: string, exceptSessionId?: stri
 export async function loadSession(req: FastifyRequest) {
   req.user = null;
   req.rep = null;
+  req.manager = null;
   req.sessionId = null;
   req.csrfToken = null;
   const token = req.cookies?.[SESSION_COOKIE];
   if (!token) return;
   const session = await prisma.session.findUnique({
     where: { tokenHash: sha256(token) },
-    include: { user: { include: { salesRep: true } } },
+    include: { user: { include: { salesRep: true, managerProfile: { include: { reps: true } } } } },
   });
   if (!session) return;
   if (session.expiresAt < new Date() || !session.user.active) {
@@ -83,6 +100,22 @@ export async function loadSession(req: FastifyRequest) {
   }
   const u = session.user;
   if (u.role === 'SELLER' && (!u.salesRep || u.salesRep.deletedAt)) return;
+  if (u.role === 'MANAGER') {
+    const m = u.managerProfile;
+    if (!m) return;
+    req.manager = {
+      id: m.id,
+      perms: {
+        canViewSales: m.canViewSales,
+        canViewCommissions: m.canViewCommissions,
+        canReleaseProducts: m.canReleaseProducts,
+        canReleaseClients: m.canReleaseClients,
+        canApproveDiscounts: m.canApproveDiscounts,
+        canUpdateOrderStatus: m.canUpdateOrderStatus,
+      },
+      repIds: m.reps.map((r) => r.salesRepId),
+    };
+  }
   req.user = { id: u.id, username: u.username, name: u.name, role: u.role, mustChangePassword: u.mustChangePassword };
   req.rep = u.salesRep;
   req.sessionId = session.id;
@@ -118,6 +151,18 @@ export async function requireAdmin(req: FastifyRequest) {
 export async function requireSeller(req: FastifyRequest) {
   await requireAuth(req);
   if (req.user!.role !== 'SELLER' || !req.rep) throw forbidden('Acesso restrito aos representantes comerciais.');
+}
+
+export async function requireManager(req: FastifyRequest) {
+  await requireAuth(req);
+  if (req.user!.role !== 'MANAGER' || !req.manager) throw forbidden('Acesso restrito aos gestores.');
+}
+
+/** Exige uma permissão específica do gestor (validada no servidor). */
+export function managerCan(perm: ManagerPermission) {
+  return async (req: FastifyRequest) => {
+    if (!req.manager?.perms[perm]) throw forbidden('Você não tem permissão para esta operação. Fale com o administrador.');
+  };
 }
 
 export function actor(req: FastifyRequest): AuditActor {

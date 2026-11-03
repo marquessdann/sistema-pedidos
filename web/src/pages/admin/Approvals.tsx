@@ -5,11 +5,13 @@ import { toast } from 'sonner';
 import { Check, X } from 'lucide-react';
 import { formatBRL, formatBps, formatDateTimeBR } from '@della/shared';
 import { api, errorMessage } from '../../lib/api';
+import { useRole } from '../../lib/auth';
 import { Button, Card, EmptyState, ErrorState, Field, Loading, Modal, PageHeader, Tabs, Textarea, cx } from '../../components/ui';
 import { ApprovalBadge } from '../../components/common';
 
 export default function Approvals() {
   const qc = useQueryClient();
+  const { isAdmin } = useRole();
   const [tab, setTab] = useState<'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
   const [decide, setDecide] = useState<{ id: string; decision: 'APPROVED' | 'REJECTED' } | null>(null);
   const [note, setNote] = useState('');
@@ -50,7 +52,7 @@ export default function Approvals() {
                   <div><p className="text-xs text-muted">Limite do vendedor</p><p className="text-lg font-semibold tabular">{formatBps(a.maxAllowedBps)}</p></div>
                   <div><p className="text-xs text-muted">Valor final</p><p className="text-lg font-semibold tabular">{formatBRL(a.totalCents)}</p></div>
                   <div><p className="text-xs text-muted">Bruto</p><p className="tabular">{formatBRL(doc.grossCents)}</p></div>
-                  <div><p className="text-xs text-muted">Margem estimada</p><p className={cx('tabular', doc.marginCents < 0 && 'text-red-600')}>{doc.marginCents != null ? formatBRL(doc.marginCents) : '—'}</p></div>
+                  {isAdmin && <div><p className="text-xs text-muted">Margem estimada</p><p className={cx('tabular', doc.marginCents < 0 && 'text-red-600')}>{doc.marginCents != null ? formatBRL(doc.marginCents) : '—'}</p></div>}
                   <div><p className="text-xs text-muted">Desc. geral</p><p className="tabular">{formatBps(a.generalDiscountBps)}</p></div>
                 </div>
                 {a.reason && <p className="mb-2 text-sm"><span className="text-muted">Justificativa do vendedor:</span> {a.reason}</p>}

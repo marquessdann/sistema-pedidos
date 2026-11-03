@@ -37,6 +37,7 @@ Em **Settings → Environment Variables** (ambiente **Production**):
 | `ADMIN_NAME` | `Daniel` |
 | `ADMIN_PASSWORD` | a senha do administrador (mínimo 10 caracteres, com letras e números) |
 | `SEED_VICTOR_PASSWORD` | a senha do Victor (mínimo 10 caracteres, com letras e números) |
+| `VINICIUS_PASSWORD` | a senha do Vinicius, gestor (mínimo 6 caracteres; recomendado 10+ com letras e números) |
 
 As senhas **não ficam no código**: só nessas variáveis. O banco guarda apenas o hash (scrypt).
 Esses valores são usados uma única vez, no primeiro deploy, para criar os usuários. Para trocar uma
@@ -51,8 +52,9 @@ Clique em **Deploy** (ou, em **Deployments**, em **Redeploy**). O build faz tudo
 1. instala as dependências;
 2. cria ou atualiza as tabelas do banco (migrações);
 3. compila o site e a API;
-4. cria as configurações iniciais, o administrador **daniel** e o representante **victor**
-   (comissão de 10% e desconto máximo de 5%), somente se ainda não existirem.
+4. cria as configurações iniciais, o administrador **daniel**, o representante **victor**
+   (comissão de 10% e desconto máximo de 5%) e o gestor **vinicius** (acompanha o Victor),
+   somente se ainda não existirem.
 
 Ao terminar, o Vercel mostra o endereço do sistema, por exemplo `https://sistema-pedidos-xxxx.vercel.app`.
 
@@ -60,6 +62,8 @@ Ao terminar, o Vercel mostra o endereço do sistema, por exemplo `https://sistem
 
 - **Administrador:** abra o endereço, entre com usuário `Daniel` e a sua senha.
 - **Victor:** envie o mesmo endereço para ele. Ele entra pelo Safari ou Chrome do celular com usuário `Victor` e a senha dele.
+- **Vinicius (gestor):** mesmo endereço, usuário `Vinicius`. Vê só o que o Victor vende, a calculadora de comissão,
+  libera produtos e clientes. O que ele pode fazer é ajustado em **Configurações → Usuários e gestores**.
 - O usuário não diferencia maiúsculas e minúsculas (`Victor` = `victor`).
 
 Primeiros passos do administrador:

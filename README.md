@@ -52,6 +52,8 @@ navegador (Safari/Chrome), sem instalar nada. **Para publicar, siga [docs/DEPLOY
 | **PDF** | Geração real (pdfkit), com logotipo (ou nome estilizado), dados da empresa, cliente, contato comercial do vendedor, itens, descontos, acréscimos, total, condições, entrega, validade e observações. Arquivos versionados, armazenados com hash SHA-256 e vinculados ao registro. Visualizar, baixar, gerar novamente, compartilhar (nativo do celular) e WhatsApp com mensagem pronta. O PDF **nunca** contém custo, margem, lucro, tributos internos ou CPF do vendedor. |
 | **E-mail** | Envio do PDF por SMTP, pronto para uso assim que as variáveis forem configuradas. Sem SMTP, o sistema informa claramente que nada foi enviado. |
 | **Estoque** | Desabilitado por padrão ("pendente de integração"). Quando habilitado: saldo por SKU em unidades (caixas são convertidas), reserva na aprovação ou na separação e baixa no envio (configurável), devolução e liberação no cancelamento, ajustes com justificativa e responsável, sem baixa duplicada. Orçamentos nunca movimentam estoque. |
+| **Perfis** | **Administrador** (acesso total), **Gestor** e **Vendedor**. O gestor (ex.: Vinicius) enxerga só os vendedores que acompanha e só faz o que o administrador marcar: ver vendas, calculadora de comissão, liberar produtos, liberar clientes, aprovar descontos e atualizar andamento. Ele nunca vê custo, margem, configurações nem auditoria. Tudo é validado no servidor (`/api/manager/*`). |
+| **Comissões** | Calculadora por período e vendedor: base = valor dos produtos após descontos (sem frete e sem acréscimos) × % de comissão do cadastro, com simulação de outra %, opção "somente faturados" e exportação CSV. |
 | **Relatórios** | Pedidos por período, vendas por vendedor e por cliente, produtos mais vendidos e quantidades por SKU, orçamentos gerados e convertidos, taxa de conversão, descontos concedidos, pedidos pendentes e cancelados, e resumo bruto x líquido (criados x aprovados x **faturados**). Exportação em CSV compatível com Excel. |
 | **Auditoria** | Log de logins, clientes, produtos, preços, descontos, aprovações, status, conversões, cancelamentos, estoque, documentos e configurações. O log é **imutável no banco** (um gatilho impede UPDATE e DELETE). |
 | **Configurações** | Dados da empresa e logotipo do PDF, condições gerais do orçamento, fuso horário, validade padrão, prefixos de numeração, desconto por item, frete, política de preço na conversão, política de estoque, condições de pagamento, tributos e acréscimos, fluxo de status e administradores adicionais. |
@@ -188,6 +190,7 @@ Use um proxy reverso com HTTPS (Nginx, Caddy etc.) na frente da aplicação.
 |---|---|---|
 | Administrador | `daniel` (`ADMIN_USERNAME`) | `ADMIN_PASSWORD` (variável de ambiente) |
 | Victor Badur (representante) | `victor` | `SEED_VICTOR_PASSWORD` (variável de ambiente) |
+| Vinicius (gestor) | `vinicius` | `VINICIUS_PASSWORD` (variável de ambiente) |
 
 - Entre em `/login`. O administrador vai para `/admin` e o vendedor para `/vendedor`.
 - O usuário não diferencia maiúsculas de minúsculas (`Victor` = `victor`). As senhas nunca ficam no código; o banco guarda só o hash.

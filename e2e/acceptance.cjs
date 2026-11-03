@@ -179,6 +179,31 @@ async function login(page, user, pass) {
   await v.waitForTimeout(600);
   await shot(v, 'phone-11-pedidos');
 
+  if (process.env.MANAGER_PASS) {
+    step('Vinicius (gestor) no celular: vendas do Victor, comissão e liberação de produto');
+    const g = await (await browser.newContext(PHONE)).newPage();
+    g.on('pageerror', (e) => console.log('  ⚠ erro de página:', e.message));
+    await login(g, 'Vinicius', process.env.MANAGER_PASS);
+    await g.getByText('Visão geral comercial').waitFor();
+    await shot(g, 'phone-12-gestor-painel');
+    await g.getByRole('link', { name: 'Comissões' }).first().click();
+    await g.getByText('Base de cálculo').waitFor();
+    await g.waitForTimeout(500);
+    const txt = await g.locator('main').innerText();
+    if (!/10,00%/.test(txt)) throw new Error('Comissão de 10% do Victor não apareceu');
+    console.log('  ✔ comissão do Victor calculada a 10%');
+    await shot(g, 'phone-13-gestor-comissoes');
+    await g.goto(`${BASE}/admin/produtos`);
+    await g.getByPlaceholder(/Nome, código/).fill(prodB);
+    await g.getByRole('button', { name: 'Inativar' }).first().click();
+    await g.getByRole('button', { name: 'Liberar' }).first().waitFor();
+    await shot(g, 'phone-14-gestor-produtos');
+    console.log('  ✔ gestor inativou e pode liberar produto');
+    const forbidden = await g.request.get(`${BASE}/api/admin/settings`);
+    if (forbidden.status() !== 403) throw new Error('Gestor acessou configurações!');
+    console.log('  ✔ configurações bloqueadas para o gestor (403)');
+  }
+
   await browser.close();
   console.log('\n✅ Fluxo completo validado no celular e no tablet.');
 })().catch((e) => {

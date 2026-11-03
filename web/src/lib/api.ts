@@ -3,6 +3,19 @@ export function setCsrf(token: string | null | undefined) {
   csrfToken = token ?? '';
 }
 
+/** Gestor usa as mesmas telas do administrador; as chamadas /admin/* vão para /manager/* (restritas no servidor). */
+let scope: 'admin' | 'manager' = 'admin';
+export function setApiScope(s: 'admin' | 'manager') {
+  scope = s;
+}
+export function scopedPath(path: string) {
+  return scope === 'manager' && path.startsWith('/admin/') ? `/manager/${path.slice(7)}` : path;
+}
+/** URL para links diretos (ex.: download de CSV). */
+export function apiHref(path: string, query?: Query) {
+  return `/api${scopedPath(path)}${qs(query)}`;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -37,7 +50,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
   let res: Response;
   try {
-    res = await fetch(`/api${path}${qs(opts.query)}`, {
+    res = await fetch(`/api${scopedPath(path)}${qs(opts.query)}`, {
       method,
       headers,
       credentials: 'same-origin',

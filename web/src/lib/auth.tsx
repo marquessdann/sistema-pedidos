@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, setCsrf } from './api';
+import { api, setApiScope, setCsrf } from './api';
 
 export interface Me {
-  user: { id: string; username: string; name: string; role: 'ADMIN' | 'SELLER'; mustChangePassword: boolean };
+  user: { id: string; username: string; name: string; role: 'ADMIN' | 'MANAGER' | 'SELLER'; mustChangePassword: boolean };
+  manager: null | { perms: ManagerPerms; repIds: string[] };
   rep: null | {
     id: string;
     fullName: string;
@@ -17,6 +18,15 @@ export interface Me {
   };
   csrfToken: string;
   company: { name: string; timezone: string; hasLogo: boolean };
+}
+
+export interface ManagerPerms {
+  canViewSales: boolean;
+  canViewCommissions: boolean;
+  canReleaseProducts: boolean;
+  canReleaseClients: boolean;
+  canApproveDiscounts: boolean;
+  canUpdateOrderStatus: boolean;
 }
 
 interface AuthCtx {
@@ -36,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setMe = useCallback((m: Me | null) => {
     setCsrf(m?.csrfToken);
+    setApiScope(m?.user.role === 'MANAGER' ? 'manager' : 'admin');
     setMeState(m);
   }, []);
 
@@ -83,3 +94,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export const useAuth = () => useContext(Ctx);
+
+/** Atalhos de perfil: administrador total, gestor (com permissões) ou vendedor. */
+export function useRole() {
+  const { me } = useAuth();
+  const role = me?.user.role;
+  const perms = me?.manager?.perms;
+  const isAdmin = role === 'ADMIN';
+  const isManager = role === 'MANAGER';
+  return {
+    isAdmin,
+    isManager,
+    /** administrador sempre pode; gestor somente se a permissão estiver marcada */
+    can: (p: keyof ManagerPerms) => isAdmin || (isManager && !!perms?.[p]),
+  };
+}

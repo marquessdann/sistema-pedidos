@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Copy, Plus, Power, Search } from 'lucide-react';
 import { formatBRL, formatBps } from '@della/shared';
 import { api, errorMessage } from '../../lib/api';
+import { useRole } from '../../lib/auth';
 import { useDebounced } from '../../lib/hooks';
 import { Badge, Button, Card, DataTable, ErrorState, Input, LinkButton, PageHeader, Pagination, Select, cx } from '../../components/ui';
 import { ProductThumb } from '../../components/common';
@@ -27,6 +28,7 @@ interface P {
 
 export default function Products() {
   const nav = useNavigate();
+  const { isAdmin } = useRole();
   const qc = useQueryClient();
   const [q, setQ] = useState('');
   const [params] = useSearchParams();
@@ -59,14 +61,18 @@ export default function Products() {
 
   return (
     <>
-      <PageHeader title="Produtos" subtitle="Catálogo, preços, custos e tributos de referência" actions={<LinkButton to="/admin/produtos/novo" variant="primary" icon={<Plus className="size-4" />}>Novo produto</LinkButton>} />
+      <PageHeader
+        title={isAdmin ? 'Produtos' : 'Liberar produtos'}
+        subtitle={isAdmin ? 'Catálogo, preços, custos e tributos de referência' : 'Ative ou inative produtos no catálogo dos vendedores'}
+        actions={isAdmin && <LinkButton to="/admin/produtos/novo" variant="primary" icon={<Plus className="size-4" />}>Novo produto</LinkButton>}
+      />
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
         <button onClick={() => { setBrand(''); setPage(1); }} className={cx('whitespace-nowrap rounded-full border px-3 py-1.5 text-sm', !brandId ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white text-ink hover:bg-navy-50')}>
           Todas as marcas
         </button>
         {brands.data?.map((b) => (
           <button key={b.id} onClick={() => { setBrand(b.id); setPage(1); }} className={cx('whitespace-nowrap rounded-full border px-3 py-1.5 text-sm', brandId === b.id ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white text-ink hover:bg-navy-50', !b.active && 'opacity-60')}>
-            {b.name} <span className="opacity-60">({b.productCount})</span>
+            {b.name} {b.productCount != null && <span className="opacity-60">({b.productCount})</span>}
           </button>
         ))}
       </div>
@@ -100,28 +106,42 @@ export default function Products() {
             rows={list.data?.items}
             loading={list.isFetching}
             rowKey={(r) => r.id}
-            onRowClick={(r) => nav(`/admin/produtos/${r.id}`)}
+            onRowClick={isAdmin ? (r) => nav(`/admin/produtos/${r.id}`) : undefined}
             mobileCard={(r) => (
               <div className="flex items-center gap-3">
                 <ProductThumb fileName={r.images[0]?.fileName} alt={r.name} size="sm" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-navy-900">{r.name}</p>
                   <p className="text-xs text-muted">{r.sku} • {r.brand.name}</p>
-                  <p className="text-xs text-muted">Custo {formatBRL(r.costCents)} • margem {r.marginBps === null ? '—' : formatBps(r.marginBps, 1)}</p>
+                  {isAdmin && <p className="text-xs text-muted">Custo {formatBRL(r.costCents)} • margem {r.marginBps === null ? '—' : formatBps(r.marginBps, 1)}</p>}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <span className="font-semibold tabular">{formatBRL(r.priceCents)}</span>
-                  {r.active ? <Badge tone="green">Ativo</Badge> : <Badge>Inativo</Badge>}
+                  {isAdmin ? (
+                    r.active ? <Badge tone="green">Ativo</Badge> : <Badge>Inativo</Badge>
+                  ) : (
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <Button size="sm" variant={r.active ? 'secondary' : 'success'} loading={toggle.isPending && toggle.variables?.id === r.id} onClick={() => toggle.mutate(r)}>
+                        {r.active ? 'Inativar' : 'Liberar'}
+                      </Button>
+                    </span>
+                  )}
                 </div>
               </div>
             )}
             columns={[
               { key: 'img', header: '', className: 'w-16', render: (r) => <ProductThumb fileName={r.images[0]?.fileName} alt={r.name} size="sm" /> },
               { key: 'name', header: 'Produto', render: (r) => (<div><p className="font-medium text-navy-900">{r.name}</p><p className="text-xs text-muted">{r.sku} • {r.brand.name}{r.category ? ` • ${r.category.name}` : ''}</p></div>) },
-              { key: 'cost', header: 'Custo', align: 'right', hideOnMobile: true, render: (r) => formatBRL(r.costCents) },
-              { key: 'tax', header: 'Trib. ref.', align: 'right', hideOnMobile: true, render: (r) => formatBps(r.taxRefBps) },
+              ...(isAdmin
+                ? [
+                    { key: 'cost', header: 'Custo', align: 'right' as const, hideOnMobile: true, render: (r: P) => formatBRL(r.costCents) },
+                    { key: 'tax', header: 'Trib. ref.', align: 'right' as const, hideOnMobile: true, render: (r: P) => formatBps(r.taxRefBps) },
+                  ]
+                : []),
               { key: 'price', header: 'Preço de venda', align: 'right', render: (r) => <span className="font-medium">{formatBRL(r.priceCents)}</span> },
-              { key: 'margin', header: 'Margem est.', align: 'right', hideOnMobile: true, render: (r) => <span className={cx(r.marginBps !== null && r.marginBps < 0 && 'text-red-600')}>{r.marginBps === null ? '—' : formatBps(r.marginBps, 1)}</span> },
+              ...(isAdmin
+                ? [{ key: 'margin', header: 'Margem est.', align: 'right' as const, hideOnMobile: true, render: (r: P) => <span className={cx(r.marginBps !== null && r.marginBps < 0 && 'text-red-600')}>{r.marginBps === null ? '—' : formatBps(r.marginBps, 1)}</span> }]
+                : []),
               { key: 'stock', header: 'Estoque', align: 'right', hideOnMobile: true, render: (r) => `${r.stockQty} ${r.unit}` },
               { key: 'status', header: 'Status', render: (r) => (r.active ? <Badge tone="green">Ativo</Badge> : <Badge>Inativo</Badge>) },
               {
@@ -130,7 +150,7 @@ export default function Products() {
                 align: 'right',
                 render: (r) => (
                   <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                    <Button size="sm" variant="ghost" title="Duplicar" aria-label="Duplicar" onClick={() => dup.mutate(r)} icon={<Copy className="size-4" />} />
+                    {isAdmin && <Button size="sm" variant="ghost" title="Duplicar" aria-label="Duplicar" onClick={() => dup.mutate(r)} icon={<Copy className="size-4" />} />}
                     <Button size="sm" variant="ghost" title={r.active ? 'Inativar' : 'Ativar'} aria-label={r.active ? 'Inativar' : 'Ativar'} onClick={() => toggle.mutate(r)} icon={<Power className={cx('size-4', r.active ? 'text-emerald-600' : 'text-slate-400')} />} />
                   </div>
                 ),
@@ -140,7 +160,7 @@ export default function Products() {
         )}
         {list.data && <Pagination page={list.data.page} pages={list.data.pages} total={list.data.total} onPage={setPage} />}
       </Card>
-      <p className="mt-3 text-xs text-muted">Custo, tributo de referência e margem são informações internas: não aparecem para os vendedores nem nos PDFs dos clientes.</p>
+      {isAdmin && <p className="mt-3 text-xs text-muted">Custo, tributo de referência e margem são informações internas: não aparecem para os vendedores nem nos PDFs dos clientes.</p>}
     </>
   );
 }

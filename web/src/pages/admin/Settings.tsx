@@ -32,7 +32,7 @@ export default function Settings() {
         { value: 'pagamento', label: 'Condições de pagamento' },
         { value: 'tributos', label: 'Tributos e acréscimos' },
         { value: 'status', label: 'Fluxo de status' },
-        { value: 'usuarios', label: 'Administradores' },
+        { value: 'usuarios', label: 'Usuários e gestores' },
       ]} />
       {tab === 'empresa' && <CompanyTab />}
       {tab === 'comercial' && <CommercialTab />}
@@ -289,14 +289,42 @@ function TransitionsTab() {
   );
 }
 
+const PERMS: [string, string, string][] = [
+  ['canViewSales', 'Ver vendas', 'Painel, pedidos e orçamentos dos vendedores que acompanha'],
+  ['canViewCommissions', 'Calculadora de comissão', 'Comissões dos vendedores que acompanha'],
+  ['canReleaseProducts', 'Liberar produtos', 'Ativar e inativar produtos no catálogo (sem ver custo)'],
+  ['canReleaseClients', 'Liberar clientes', 'Ativar/bloquear clientes dos vendedores que acompanha'],
+  ['canApproveDiscounts', 'Aprovar descontos', 'Decidir descontos acima do limite do vendedor'],
+  ['canUpdateOrderStatus', 'Atualizar andamento', 'Mudar o status dos pedidos (separação, envio…)'],
+];
+const DEFAULT_PERMS = { canViewSales: true, canViewCommissions: true, canReleaseProducts: true, canReleaseClients: true, canApproveDiscounts: false, canUpdateOrderStatus: false };
+
 function UsersTab() {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ username: '', name: '', password: '' });
+  const [form, setForm] = useState<null | { id?: string; username: string; name: string; password: string; role: 'ADMIN' | 'MANAGER'; perms: Record<string, boolean>; repIds: string[] }>(null);
+  const [pwd, setPwd] = useState<{ id: string; name: string; password: string } | null>(null);
   const list = useQuery({ queryKey: ['users'], queryFn: () => api<any[]>('/admin/users') });
-  const create = useMutation({
-    mutationFn: () => api('/admin/users', { body: f }),
-    onSuccess: () => { toast.success('Administrador criado (troca de senha no primeiro acesso).'); setOpen(false); setF({ username: '', name: '', password: '' }); void qc.invalidateQueries({ queryKey: ['users'] }); },
+  const reps = useQuery({ queryKey: ['reps'], queryFn: () => api<{ id: string; fullName: string }[]>('/admin/reps') });
+  const save = useMutation({
+    mutationFn: () =>
+      form!.id
+        ? api(`/admin/users/${form!.id}/manager`, { method: 'PUT', body: { ...form!.perms, repIds: form!.repIds } })
+        : api('/admin/users', {
+            body: { username: form!.username, name: form!.name, password: form!.password, role: form!.role, manager: form!.role === 'MANAGER' ? { ...form!.perms, repIds: form!.repIds } : undefined },
+          }),
+    onSuccess: () => {
+      toast.success(form!.id ? 'Permissões atualizadas.' : 'Usuário criado (troca de senha no primeiro acesso).');
+      setForm(null);
+      void qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const reset = useMutation({
+    mutationFn: () => api(`/admin/users/${pwd!.id}/reset-password`, { body: { password: pwd!.password } }),
+    onSuccess: () => {
+      toast.success('Senha redefinida. A pessoa deverá trocá-la no próximo acesso.');
+      setPwd(null);
+    },
     onError: (e) => toast.error(errorMessage(e)),
   });
   const toggle = useMutation({
@@ -304,25 +332,103 @@ function UsersTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
     onError: (e) => toast.error(errorMessage(e)),
   });
+  const repName = (id: string) => reps.data?.find((r) => r.id === id)?.fullName ?? '—';
+  const roleBadge = (r: string) => (r === 'ADMIN' ? <Badge tone="navy">Administrador (total)</Badge> : r === 'MANAGER' ? <Badge tone="violet">Gestor</Badge> : <Badge tone="gold">Vendedor</Badge>);
   return (
     <Card padded={false}>
-      <div className="p-5 pb-3"><CardTitle className="mb-0" actions={<Button size="sm" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>Novo administrador</Button>}>Usuários do sistema</CardTitle></div>
-      <DataTable rows={list.data} loading={list.isLoading} rowKey={(r: any) => r.id}
+      <div className="p-5 pb-3">
+        <CardTitle className="mb-0" actions={<Button size="sm" icon={<Plus className="size-4" />} onClick={() => setForm({ username: '', name: '', password: '', role: 'MANAGER', perms: { ...DEFAULT_PERMS }, repIds: [] })}>Novo usuário</Button>}>
+          Administradores e gestores
+        </CardTitle>
+      </div>
+      <DataTable
+        rows={list.data?.filter((u) => u.role !== 'SELLER')}
+        loading={list.isLoading}
+        rowKey={(r: any) => r.id}
+        mobileCard={(r: any) => (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2"><span className="font-medium">{r.name}</span>{roleBadge(r.role)}</div>
+            <p className="text-xs text-muted">usuário: {r.username} • {r.active ? 'ativo' : 'inativo'}</p>
+            {r.managerProfile && <p className="text-xs text-muted">Acompanha: {r.managerProfile.reps.map((x: any) => repName(x.salesRepId)).join(', ') || 'ninguém'}</p>}
+          </div>
+        )}
         columns={[
           { key: 'n', header: 'Nome', render: (r: any) => <span className="font-medium">{r.name}</span> },
           { key: 'u', header: 'Usuário', render: (r: any) => r.username },
-          { key: 'r', header: 'Perfil', render: (r: any) => (r.role === 'ADMIN' ? <Badge tone="navy">Administrador</Badge> : <Badge tone="gold">Vendedor</Badge>) },
+          { key: 'r', header: 'Perfil', render: (r: any) => roleBadge(r.role) },
+          { key: 'p', header: 'Acompanha / permissões', render: (r: any) => (r.managerProfile ? <span className="text-xs text-muted">{r.managerProfile.reps.map((x: any) => repName(x.salesRepId)).join(', ') || 'ninguém'} • {PERMS.filter(([k]) => r.managerProfile[k]).map(([, l]) => l).join(', ')}</span> : r.role === 'ADMIN' ? <span className="text-xs text-muted">Tudo</span> : null) },
           { key: 'l', header: 'Último acesso', hideOnMobile: true, render: (r: any) => (r.lastLoginAt ? formatDateTimeBR(r.lastLoginAt) : 'Nunca') },
           { key: 's', header: 'Status', render: (r: any) => (r.active ? <Badge tone="green">Ativo</Badge> : <Badge tone="red">Inativo</Badge>) },
-          { key: 'a', header: '', align: 'right', render: (r: any) => r.role === 'ADMIN' && <Button size="sm" variant="ghost" onClick={() => toggle.mutate(r)}>{r.active ? 'Desativar' : 'Ativar'}</Button> },
-        ]} />
-      <p className="px-5 py-3 text-xs text-muted">Vendedores são gerenciados em “Vendedores”.</p>
-      <Modal open={open} onClose={() => setOpen(false)} title="Novo administrador" size="sm" footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancelar</Button><Button loading={create.isPending} onClick={() => create.mutate()}>Criar</Button></>}>
-        <div className="space-y-4">
-          <Field label="Nome"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-          <Field label="Usuário"><Input value={f.username} onChange={(e) => setF({ ...f, username: e.target.value.toLowerCase() })} /></Field>
-          <Field label="Senha provisória" hint="Troca obrigatória no primeiro acesso."><Input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
-        </div>
+          {
+            key: 'a',
+            header: '',
+            align: 'right',
+            render: (r: any) => (
+              <div className="flex justify-end gap-1">
+                {r.managerProfile && (
+                  <Button size="sm" variant="ghost" onClick={() => setForm({ id: r.id, username: r.username, name: r.name, password: '', role: 'MANAGER', perms: Object.fromEntries(PERMS.map(([k]) => [k, r.managerProfile[k]])), repIds: r.managerProfile.reps.map((x: any) => x.salesRepId) })}>
+                    Permissões
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setPwd({ id: r.id, name: r.name, password: '' })}>Senha</Button>
+                <Button size="sm" variant="ghost" onClick={() => toggle.mutate(r)}>{r.active ? 'Desativar' : 'Ativar'}</Button>
+              </div>
+            ),
+          },
+        ]}
+      />
+      <p className="px-5 py-3 text-xs text-muted">Vendedores são gerenciados em “Vendedores”. O gestor nunca vê custos, margens, configurações nem a auditoria.</p>
+
+      <Modal open={!!form} onClose={() => setForm(null)} title={form?.id ? `Permissões de ${form.name}` : 'Novo usuário'} size="lg" footer={<><Button variant="secondary" onClick={() => setForm(null)}>Cancelar</Button><Button loading={save.isPending} onClick={() => save.mutate()}>Salvar</Button></>}>
+        {form && (
+          <div className="space-y-5">
+            {!form.id && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Perfil" className="sm:col-span-2">
+                  <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'ADMIN' })}>
+                    <option value="MANAGER">Gestor (acesso restrito)</option>
+                    <option value="ADMIN">Administrador (acesso total)</option>
+                  </Select>
+                </Field>
+                <Field label="Nome"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+                <Field label="Usuário"><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase() })} /></Field>
+                <Field label="Senha provisória" hint="Mínimo 8 caracteres com letras e números. Troca obrigatória no 1º acesso." className="sm:col-span-2">
+                  <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                </Field>
+              </div>
+            )}
+            {form.role === 'MANAGER' && (
+              <>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Vendedores que acompanha</p>
+                  <div className="flex flex-wrap gap-2">
+                    {reps.data?.map((r) => {
+                      const on = form.repIds.includes(r.id);
+                      return (
+                        <button key={r.id} type="button" aria-pressed={on} onClick={() => setForm({ ...form, repIds: on ? form.repIds.filter((x) => x !== r.id) : [...form.repIds, r.id] })} className={cx('h-10 rounded-xl border px-4 text-sm', on ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white')}>
+                          {r.fullName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">O que pode fazer</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {PERMS.map(([k, l, d]) => (
+                      <Toggle key={k} checked={!!form.perms[k]} onChange={(v) => setForm({ ...form, perms: { ...form.perms, [k]: v } })} label={l} description={d} />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+      <Modal open={!!pwd} onClose={() => setPwd(null)} title={`Redefinir senha de ${pwd?.name ?? ''}`} size="sm" footer={<><Button variant="secondary" onClick={() => setPwd(null)}>Cancelar</Button><Button loading={reset.isPending} onClick={() => reset.mutate()}>Redefinir</Button></>}>
+        <Field label="Nova senha provisória" hint="A pessoa troca no próximo acesso; sessões abertas são encerradas.">
+          <Input type="password" autoComplete="new-password" value={pwd?.password ?? ''} onChange={(e) => setPwd(pwd && { ...pwd, password: e.target.value })} />
+        </Field>
       </Modal>
     </Card>
   );

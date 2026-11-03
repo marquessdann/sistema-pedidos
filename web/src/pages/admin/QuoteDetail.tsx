@@ -5,12 +5,14 @@ import { toast } from 'sonner';
 import { Unlock } from 'lucide-react';
 import { QUOTE_STATUS_LABELS, formatCnpj, formatDateBR } from '@della/shared';
 import { api, errorMessage } from '../../lib/api';
+import { useRole } from '../../lib/auth';
 import { Alert, Button, Card, CardTitle, ErrorState, Field, KeyValue, Loading, Modal, PageHeader, Textarea } from '../../components/ui';
 import { ApprovalBadge, OrderStatusBadge, PdfActions, QuoteStatusBadge, StatusHistoryList } from '../../components/common';
 import { ItemsTable, TotalsCard } from '../../components/docs';
 
 export default function AdminQuoteDetail() {
   const { id } = useParams();
+  const { isAdmin } = useRole();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -29,7 +31,7 @@ export default function AdminQuoteDetail() {
         back="/admin/orcamentos"
         title={<span className="flex flex-wrap items-center gap-3">Orçamento {d.number} <QuoteStatusBadge status={d.status} /> <ApprovalBadge status={d.discountApprovalStatus} /></span>}
         subtitle={`${formatDateBR(d.quoteDate)} • válido até ${formatDateBR(d.validUntil)} • ${d.salesRep.fullName}`}
-        actions={d.status === 'CONVERTED' && <Button variant="secondary" icon={<Unlock className="size-4" />} onClick={() => setOpen(true)}>Liberar nova conversão</Button>}
+        actions={isAdmin && d.status === 'CONVERTED' && <Button variant="secondary" icon={<Unlock className="size-4" />} onClick={() => setOpen(true)}>Liberar nova conversão</Button>}
       />
       {d.convertedOrder && (
         <div className="mb-4"><Alert tone="navy" title="Convertido em pedido">Pedido <Link className="underline" to={`/admin/pedidos/${d.convertedOrder.id}`}>{d.convertedOrder.number}</Link> — <OrderStatusBadge status={d.convertedOrder.status} /></Alert></div>
@@ -40,7 +42,7 @@ export default function AdminQuoteDetail() {
             <CardTitle>Cliente e condições</CardTitle>
             <KeyValue items={[['Cliente', d.client.legalName], ['CNPJ', formatCnpj(d.client.cnpj)], ['Condição de pagamento', d.paymentTermName], ['Previsão de entrega', d.expectedDelivery ? formatDateBR(d.expectedDelivery) : null], ['Observações', d.notes]]} />
           </Card>
-          <Card padded={false}><div className="p-5 pb-2"><CardTitle className="mb-0">Itens</CardTitle></div><ItemsTable items={d.items} showCost /></Card>
+          <Card padded={false}><div className="p-5 pb-2"><CardTitle className="mb-0">Itens</CardTitle></div><ItemsTable items={d.items} showCost={isAdmin} /></Card>
           {d.orders.length > 0 && (
             <Card>
               <CardTitle>Pedidos vinculados</CardTitle>
@@ -50,7 +52,7 @@ export default function AdminQuoteDetail() {
           <Card><CardTitle>Histórico</CardTitle><StatusHistoryList history={d.statusHistory} labels={QUOTE_STATUS_LABELS} /></Card>
         </div>
         <div className="space-y-6">
-          <TotalsCard doc={d} internal title="Resumo da proposta" />
+          <TotalsCard doc={d} internal={isAdmin} title="Resumo da proposta" />
           <PdfActions kind="quotes" id={d.id} number={d.number} clientPhone={d.client.commercialPhone} disabledReason={d.discountApprovalStatus === 'PENDING' ? 'Aguardando decisão sobre o desconto.' : null} />
         </div>
       </div>

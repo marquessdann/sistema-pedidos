@@ -98,7 +98,48 @@ async function main() {
   }
 }
 
+async function seedManager() {
+  // ---------- Gestor Vinicius (acesso restrito ao que o Victor vende) ----------
+  const username = (process.env.MANAGER_USERNAME ?? 'vinicius').trim().toLowerCase();
+  const password = process.env.VINICIUS_PASSWORD ?? process.env.MANAGER_PASSWORD ?? '';
+  if (await prisma.user.findUnique({ where: { username } })) {
+    console.log(`• Gestor "${username}" já existe (senha não alterada)`);
+    return;
+  }
+  if (!password) {
+    console.log(`• VINICIUS_PASSWORD não definida: gestor "${username}" não criado.`);
+    return;
+  }
+  if (password.length < 6) {
+    console.warn('⚠ VINICIUS_PASSWORD precisa ter pelo menos 6 caracteres: gestor NÃO criado.');
+    return;
+  }
+  if (!strong(password)) console.warn('⚠ Senha do gestor é fraca (recomendado: 10+ caracteres com letras e números). Criado mesmo assim, conforme solicitado.');
+  const victor = await prisma.salesRep.findFirst({ where: { user: { username: 'victor' } } });
+  await prisma.user.create({
+    data: {
+      username,
+      name: process.env.MANAGER_NAME ?? 'Vinicius',
+      role: 'MANAGER',
+      passwordHash: await hashPassword(password),
+      managerProfile: {
+        create: {
+          canViewSales: true,
+          canViewCommissions: true,
+          canReleaseProducts: true,
+          canReleaseClients: true,
+          canApproveDiscounts: false,
+          canUpdateOrderStatus: false,
+          reps: victor ? { create: [{ salesRepId: victor.id }] } : undefined,
+        },
+      },
+    },
+  });
+  console.log(`✔ Gestor "${username}" criado (vê vendas e comissões${victor ? ' do Victor' : ''}, libera produtos e clientes)`);
+}
+
 main()
+  .then(seedManager)
   .catch((e) => {
     console.error(e);
     process.exit(1);

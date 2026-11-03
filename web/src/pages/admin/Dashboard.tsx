@@ -124,7 +124,7 @@ export default function Dashboard() {
       <PageHeader title={`Olá, ${me?.user.name.split(' ')[0] ?? ''}`} subtitle="Visão geral comercial da Della" />
 
       <Card className="mb-6 py-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           <Field label="De">
             <Input type="date" value={filter.from || d?.filter.from || ''} onChange={(e) => setFilter({ ...filter, from: e.target.value })} />
           </Field>

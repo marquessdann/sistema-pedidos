@@ -16,6 +16,7 @@ import { MAX_IMAGE_BYTES } from './lib/storage';
 import { authRoutes } from './modules/auth/routes';
 import { adminRoutes } from './modules/admin';
 import { sellerRoutes } from './modules/seller';
+import { managerRoutes } from './modules/manager';
 import { documentRoutes, type PdfRenderer } from './modules/documents/routes';
 import { fileRoutes } from './modules/documents/files';
 
@@ -61,6 +62,7 @@ export async function buildApp(deps: AppDeps = {}) {
 
   app.decorateRequest('user', null);
   app.decorateRequest('rep', null);
+  app.decorateRequest('manager', null);
   app.decorateRequest('sessionId', null);
   app.decorateRequest('csrfToken', null);
   app.addHook('onRequest', async (req) => {
@@ -79,6 +81,7 @@ export async function buildApp(deps: AppDeps = {}) {
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(adminRoutes, { prefix: '/api/admin' });
   await app.register(sellerRoutes, { prefix: '/api/seller' });
+  await app.register(managerRoutes, { prefix: '/api/manager' });
   await app.register(documentRoutes(deps.pdfRenderer), { prefix: '/api/documents' });
   await app.register(fileRoutes, { prefix: '/api/files' });
 

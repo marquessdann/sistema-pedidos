@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
   CLIENT_STATUS_LABELS,
@@ -8,6 +8,7 @@ import {
   ORDER_STATUS_LABELS,
   QUOTE_STATUS_LABELS,
   addDays,
+  mulBps,
   formatCnpj,
   type OrderStatus,
 } from '@della/shared';
@@ -25,12 +26,24 @@ const filterSchema = z.object({
     .optional()
     .transform((v) => (v ? (v.split(',').filter((s) => (ORDER_STATUSES as readonly string[]).includes(s)) as OrderStatus[]) : undefined)),
 });
-type Filter = z.infer<typeof filterSchema> & { from: string; to: string };
+/** repIds: quando definido, restringe tudo a esses vendedores (acesso do gestor). */
+export type Filter = z.infer<typeof filterSchema> & { from: string; to: string; repIds?: string[] };
 
-async function withDefaults(raw: unknown): Promise<Filter> {
+export async function withDefaults(raw: unknown, repIds?: string[]): Promise<Filter> {
   const f = filterSchema.parse(raw);
+  if (repIds && f.salesRepId && !repIds.includes(f.salesRepId)) {
+    throw Object.assign(new Error('Vendedor fora da sua supervisão.'), { statusCode: 403 });
+  }
   const t = today(await getSettings());
-  return { ...f, from: f.from ?? `${t.slice(0, 7)}-01`, to: f.to ?? t };
+  return { ...f, from: f.from ?? `${t.slice(0, 7)}-01`, to: f.to ?? t, repIds };
+}
+
+function repScopeSql(alias: 'o' | 'q', repIds?: string[]) {
+  if (!repIds) return null;
+  if (!repIds.length) return Prisma.sql`FALSE`;
+  return alias === 'o'
+    ? Prisma.sql`o."salesRepId"::text IN (${Prisma.join(repIds)})`
+    : Prisma.sql`q."salesRepId"::text IN (${Prisma.join(repIds)})`;
 }
 
 const num = (v: unknown) => Number(v ?? 0);
@@ -43,6 +56,8 @@ function orderConds(f: Filter, statuses: readonly string[] = ORDER_CONFIRMED_STA
   ];
   if (f.clientId) parts.push(Prisma.sql`o."clientId" = ${f.clientId}::uuid`);
   if (f.salesRepId) parts.push(Prisma.sql`o."salesRepId" = ${f.salesRepId}::uuid`);
+  const scope = repScopeSql('o', f.repIds);
+  if (scope) parts.push(scope);
   return Prisma.join(parts, ' AND ');
 }
 
@@ -50,6 +65,8 @@ function quoteConds(f: Filter) {
   const parts: Prisma.Sql[] = [Prisma.sql`q."quoteDate" BETWEEN ${f.from}::date AND ${f.to}::date`];
   if (f.clientId) parts.push(Prisma.sql`q."clientId" = ${f.clientId}::uuid`);
   if (f.salesRepId) parts.push(Prisma.sql`q."salesRepId" = ${f.salesRepId}::uuid`);
+  const scope = repScopeSql('q', f.repIds);
+  if (scope) parts.push(scope);
   return Prisma.join(parts, ' AND ');
 }
 
@@ -66,7 +83,7 @@ function sumCols(rows: Record<string, unknown>[], keys: string[]) {
   return Object.fromEntries(keys.map((k) => [k, rows.reduce((a, r) => a + num(r[k]), 0)]));
 }
 
-async function buildReport(kind: string, f: Filter): Promise<Report> {
+export async function buildReport(kind: string, f: Filter): Promise<Report> {
   switch (kind) {
     case 'orders':
     case 'pending':
@@ -304,7 +321,7 @@ async function buildReport(kind: string, f: Filter): Promise<Report> {
   }
 }
 
-function csvValue(v: unknown, type: ColType): string {
+export function csvValue(v: unknown, type: ColType): string {
   if (v === null || v === undefined) return '';
   let s: string;
   if (type === 'money') s = (num(v) / 100).toFixed(2).replace('.', ',');
@@ -333,19 +350,95 @@ export async function adminReportRoutes(app: FastifyInstance) {
     return { ...report, filter: f };
   });
 
-  app.get('/dashboard', async (req) => {
-    const f = await withDefaults(req.query);
+  app.get('/dashboard', async (req) => dashboardData(req.query));
+  app.get('/commissions', async (req, reply) => sendCommissions(req.query, reply));
+}
+
+/** Calculadora de comissão: base = valor dos produtos (total − frete − acréscimos), após descontos. */
+const commissionSchema = z.object({
+  basis: z.enum(['fulfilled', 'confirmed']).default('confirmed'),
+  rateBps: z.coerce.number().int().min(0).max(10_000).optional(),
+  format: z.enum(['json', 'csv']).default('json'),
+});
+
+export async function commissionData(raw: unknown, repIds?: string[]) {
+  const f = await withDefaults(raw, repIds);
+  const c = commissionSchema.parse(raw);
+  const statuses = c.basis === 'fulfilled' ? ORDER_FULFILLED_STATUSES : ORDER_CONFIRMED_STATUSES;
+  const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT o.id, o.number, to_char(o."orderDate", 'YYYY-MM-DD') AS date, c."legalName" AS client, r.id AS "repId", r."fullName" AS rep,
+           o.status::text AS status, o."totalCents" AS total, o."freightCents" AS freight, o."surchargeCents" AS surcharge,
+           COALESCE(r."commissionBps", 0) AS "repRate"
+      FROM orders o JOIN clients c ON c.id = o."clientId" JOIN sales_representatives r ON r.id = o."salesRepId"
+     WHERE ${orderConds({ ...f, status: undefined }, statuses)}
+     ORDER BY o."orderDate" DESC, o.number DESC`;
+  const lines = rows.map((r) => {
+    const base = num(r.total) - num(r.freight) - num(r.surcharge);
+    const rateBps = c.rateBps ?? num(r.repRate);
+    return {
+      id: r.id as string,
+      number: r.number as string,
+      date: r.date as string,
+      client: r.client as string,
+      rep: r.rep as string,
+      repId: r.repId as string,
+      status: ORDER_STATUS_LABELS[r.status as OrderStatus],
+      totalCents: num(r.total),
+      baseCents: base,
+      rateBps,
+      commissionCents: mulBps(base, rateBps),
+    };
+  });
+  const byRep = new Map<string, { rep: string; orders: number; baseCents: number; commissionCents: number; rateBps: number }>();
+  for (const l of lines) {
+    const cur = byRep.get(l.repId) ?? { rep: l.rep, orders: 0, baseCents: 0, commissionCents: 0, rateBps: l.rateBps };
+    cur.orders += 1;
+    cur.baseCents += l.baseCents;
+    cur.commissionCents += l.commissionCents;
+    byRep.set(l.repId, cur);
+  }
+  return {
+    filter: { from: f.from, to: f.to, salesRepId: f.salesRepId ?? null, basis: c.basis, rateBps: c.rateBps ?? null },
+    lines,
+    byRep: [...byRep.values()],
+    totals: {
+      orders: lines.length,
+      baseCents: lines.reduce((a, l) => a + l.baseCents, 0),
+      commissionCents: lines.reduce((a, l) => a + l.commissionCents, 0),
+    },
+  };
+}
+
+export async function sendCommissions(raw: unknown, reply: FastifyReply, repIds?: string[]) {
+  const d = await commissionData(raw, repIds);
+  if ((raw as { format?: string })?.format !== 'csv') return d;
+  const cols: [string, string, ColType][] = [
+    ['number', 'Pedido', 'text'], ['date', 'Data', 'date'], ['client', 'Cliente', 'text'], ['rep', 'Vendedor', 'text'], ['status', 'Status', 'text'],
+    ['totalCents', 'Valor do pedido', 'money'], ['baseCents', 'Base da comissão', 'money'], ['rateBps', '% comissão', 'percent'], ['commissionCents', 'Comissão', 'money'],
+  ];
+  const out = [cols.map((c) => csvValue(c[1], 'text')).join(';')];
+  for (const l of d.lines) out.push(cols.map(([k, , t]) => csvValue((l as Record<string, unknown>)[k], t)).join(';'));
+  out.push(['Total', '', '', '', `${d.totals.orders} pedido(s)`, '', csvValue(d.totals.baseCents, 'money'), '', csvValue(d.totals.commissionCents, 'money')].join(';'));
+  reply.header('Content-Type', 'text/csv; charset=utf-8');
+  reply.header('Content-Disposition', `attachment; filename="comissoes-${d.filter.from}-a-${d.filter.to}.csv"`);
+  return reply.send('\uFEFF' + out.join('\r\n'));
+}
+
+/** Dados do painel. Com repIds, mostra somente os vendedores supervisionados. */
+export async function dashboardData(raw: unknown, repIds?: string[]) {
+  {
+    const f = await withDefaults(raw, repIds);
     const settings = await getSettings();
     const t = today(settings);
-    const repCond = f.salesRepId ? { salesRepId: f.salesRepId } : {};
+    const repCond = f.salesRepId ? { salesRepId: f.salesRepId } : repIds ? { salesRepId: { in: repIds } } : {};
     const clientCond = f.clientId ? { clientId: f.clientId } : {};
     const statusIn = (s: OrderStatus[]) => ({ status: { in: f.status?.length ? s.filter((x) => f.status!.includes(x)) : s } });
     const period = { orderDate: { gte: new Date(`${f.from}T00:00:00Z`), lte: new Date(`${f.to}T00:00:00Z`) } };
     const base = { ...repCond, ...clientCond };
 
     const [clients, clientsPending, activeProducts, ordersToday, pendingApproval, picking, shipped, completed, openQuotes, pendingDiscounts] = await Promise.all([
-      prisma.client.count({ where: { deletedAt: null, ...(f.salesRepId ? { salesRepId: f.salesRepId } : {}) } }),
-      prisma.client.count({ where: { deletedAt: null, status: { in: ['PENDING_REGISTRATION', 'UNDER_REVIEW'] } } }),
+      prisma.client.count({ where: { deletedAt: null, ...repCond } }),
+      prisma.client.count({ where: { deletedAt: null, ...(repIds ? repCond : {}), status: { in: ['PENDING_REGISTRATION', 'UNDER_REVIEW'] } } }),
       prisma.product.count({ where: { deletedAt: null, active: true } }),
       prisma.order.count({ where: { ...base, orderDate: new Date(`${t}T00:00:00Z`), status: { notIn: ['DRAFT'] } } }),
       prisma.order.count({ where: { ...base, ...statusIn(['CREATED', 'PENDING_APPROVAL']) } }),
@@ -353,7 +446,7 @@ export async function adminReportRoutes(app: FastifyInstance) {
       prisma.order.count({ where: { ...base, ...statusIn(['SHIPPED']) } }),
       prisma.order.count({ where: { ...base, ...period, ...statusIn(['DELIVERED', 'COMPLETED']) } }),
       prisma.quote.count({ where: { ...base, status: { in: ['DRAFT', 'SENT', 'AWAITING_RESPONSE', 'APPROVED_BY_CLIENT'] } } }),
-      prisma.discountApproval.count({ where: { status: 'PENDING', ...(f.salesRepId ? { salesRepId: f.salesRepId } : {}) } }),
+      prisma.discountApproval.count({ where: { status: 'PENDING', ...repCond } }),
     ]);
     const confirmedWhere = { ...base, ...period, ...statusIn([...ORDER_CONFIRMED_STATUSES]) };
     const agg = await prisma.order.aggregate({
@@ -381,7 +474,7 @@ export async function adminReportRoutes(app: FastifyInstance) {
       select: { id: true, number: true, orderDate: true, status: true, totalCents: true, client: { select: { legalName: true, tradeName: true } }, salesRep: { select: { fullName: true } } },
     });
     const pendingClients = await prisma.client.findMany({
-      where: { deletedAt: null, status: { in: ['PENDING_REGISTRATION', 'UNDER_REVIEW'] } },
+      where: { deletedAt: null, ...(repIds ? repCond : {}), status: { in: ['PENDING_REGISTRATION', 'UNDER_REVIEW'] } },
       orderBy: { createdAt: 'desc' },
       take: 5,
       select: { id: true, legalName: true, cnpj: true, status: true, createdAt: true },
@@ -412,5 +505,5 @@ export async function adminReportRoutes(app: FastifyInstance) {
       recentOrders: recentOrders.map((o) => ({ ...o, orderDate: o.orderDate.toISOString().slice(0, 10) })),
       pendingClients: pendingClients.map((c) => ({ ...c, statusLabel: CLIENT_STATUS_LABELS[c.status] })),
     };
-  });
+  }
 }

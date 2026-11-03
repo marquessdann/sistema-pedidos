@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3,
+  Calculator,
   Boxes,
   ClipboardCheck,
   ClipboardList,
@@ -23,7 +24,7 @@ import {
   Warehouse,
   X,
 } from 'lucide-react';
-import { useAuth } from '../../lib/auth';
+import { useAuth, useRole } from '../../lib/auth';
 import { api } from '../../lib/api';
 import { cx } from '../ui';
 
@@ -58,18 +59,30 @@ export function AppShell() {
   const nav = useNavigate();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
-  const isAdmin = me?.user.role === 'ADMIN';
+  const { isManager, can } = useRole();
+  // painel de gestão (administrador total ou gestor)
+  const isAdmin = me?.user.role === 'ADMIN' || isManager;
 
   useEffect(() => setOpen(false), [loc.pathname]);
 
   const pending = useQuery({
     queryKey: ['approvals-count'],
     queryFn: () => api<{ total: number }>('/admin/approvals', { query: { status: 'PENDING', pageSize: 1 } }),
-    enabled: isAdmin,
+    enabled: can('canApproveDiscounts'),
     refetchInterval: 60_000,
   });
 
-  const items: NavItem[] = isAdmin
+  const items: NavItem[] = isManager
+    ? ([
+        can('canViewSales') && { to: '/admin', label: 'Painel', short: 'Painel', icon: <LayoutDashboard />, end: true },
+        can('canViewSales') && { to: '/admin/pedidos', label: 'Vendas', icon: <ClipboardList /> },
+        can('canViewSales') && { to: '/admin/orcamentos', label: 'Orçamentos', icon: <FileText /> },
+        can('canViewCommissions') && { to: '/admin/comissoes', label: 'Comissões', icon: <Calculator /> },
+        can('canApproveDiscounts') && { to: '/admin/aprovacoes', label: 'Aprovações', icon: <ClipboardCheck />, badge: pending.data?.total },
+        can('canReleaseProducts') && { to: '/admin/produtos', label: 'Liberar produtos', short: 'Produtos', icon: <Package /> },
+        { to: '/admin/clientes', label: 'Clientes', icon: <Users /> },
+      ].filter(Boolean) as NavItem[])
+    : isAdmin
     ? [
         { to: '/admin', label: 'Dashboard', short: 'Painel', icon: <LayoutDashboard />, end: true },
         { to: '/admin/clientes', label: 'Clientes', icon: <Users /> },
@@ -79,6 +92,7 @@ export function AppShell() {
         { to: '/admin/pedidos', label: 'Pedidos', icon: <ClipboardList /> },
         { to: '/admin/orcamentos', label: 'Orçamentos', icon: <FileText /> },
         { to: '/admin/aprovacoes', label: 'Aprovações', icon: <ClipboardCheck />, badge: pending.data?.total },
+        { to: '/admin/comissoes', label: 'Comissões', icon: <Calculator /> },
         { to: '/admin/estoque', label: 'Estoque', icon: <Warehouse /> },
         { to: '/admin/relatorios', label: 'Relatórios', icon: <BarChart3 /> },
         { to: '/admin/auditoria', label: 'Auditoria', icon: <ScrollText /> },
@@ -101,7 +115,7 @@ export function AppShell() {
         </button>
       </div>
       <div className="mx-5 mb-3 h-px bg-gradient-to-r from-gold-500/60 to-transparent" />
-      <p className="px-5 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-navy-300">{isAdmin ? 'Administração' : 'Representante'}</p>
+      <p className="px-5 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-navy-300">{isManager ? 'Gestão' : isAdmin ? 'Administração' : 'Representante'}</p>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
         {items.map((it) => (
           <NavLink
@@ -145,9 +159,11 @@ export function AppShell() {
 
   // telas de montagem de pedido/orçamento ocupam a tela inteira no celular (têm barra própria)
   const fullscreenFlow = /\/(novo-pedido|novo-orcamento|editar)(\/|$)/.test(loc.pathname);
-  const bottom = isAdmin
-    ? ['/admin', '/admin/pedidos', '/admin/aprovacoes', '/admin/clientes']
-    : ['/vendedor', '/vendedor/pedidos', '/vendedor/processo', '/vendedor/orcamentos'];
+  const bottom = isManager
+    ? items.slice(0, 4).map((i) => i.to)
+    : isAdmin
+      ? ['/admin', '/admin/pedidos', '/admin/aprovacoes', '/admin/clientes']
+      : ['/vendedor', '/vendedor/pedidos', '/vendedor/processo', '/vendedor/orcamentos'];
   const bottomItems = bottom.map((to) => items.find((i) => i.to === to)!).filter(Boolean);
 
   return (
@@ -175,7 +191,7 @@ export function AppShell() {
         <div className="flex items-center gap-3">
           <div className="text-right leading-tight">
             <p className="max-w-40 truncate text-sm font-medium text-navy-900">{me?.rep?.fullName ?? me?.user.name}</p>
-            <p className="text-xs text-muted">{isAdmin ? 'Administrador' : me?.rep?.title}</p>
+            <p className="text-xs text-muted">{isManager ? 'Gestor' : isAdmin ? 'Administrador' : me?.rep?.title}</p>
           </div>
           <div className="flex size-9 items-center justify-center rounded-full bg-navy-900 text-sm font-semibold text-gold-300">
             {(me?.user.name ?? '?')
@@ -185,7 +201,7 @@ export function AppShell() {
               .join('')
               .toUpperCase()}
           </div>
-          {isAdmin && <ShieldCheck className="hidden size-4 text-gold-500 sm:block" aria-label="Administrador" />}
+          {me?.user.role === 'ADMIN' && <ShieldCheck className="hidden size-4 text-gold-500 sm:block" aria-label="Administrador" />}
         </div>
       </header>
       <main className={cx('mx-auto max-w-[1400px] px-4 py-5 lg:px-8 lg:py-8', fullscreenFlow ? 'pb-6' : 'pb-28 lg:pb-8')}>

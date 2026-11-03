@@ -16,7 +16,10 @@ datasource db {
 }
 
 enum Role {
+  /// Administrador com acesso total
   ADMIN
+  /// Gestor: acesso restrito aos vendedores supervisionados e às permissões marcadas
+  MANAGER
   SELLER
 }
 
@@ -121,6 +124,7 @@ model User {
   updatedAt          DateTime  @updatedAt
 
   salesRep       SalesRep?
+  managerProfile ManagerProfile?
   sessions       Session[]
   auditLogs      AuditLog[]
   statusChanges  OrderStatusHistory[]
@@ -179,6 +183,7 @@ model SalesRep {
   quotes    Quote[]
   approvals DiscountApproval[]
 
+  managers  ManagerRep[]
   @@map("sales_representatives")
 }
 
@@ -744,4 +749,38 @@ model StoredFile {
   createdAt DateTime @default(now())
 
   @@map("stored_files")
+}
+
+/// Perfil do gestor (ex.: Vinicius). O administrador total define o que ele pode fazer.
+model ManagerProfile {
+  id                   String       @id @default(uuid()) @db.Uuid
+  userId               String       @unique @db.Uuid
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Ver vendas (pedidos, orçamentos e painel) dos vendedores supervisionados
+  canViewSales         Boolean      @default(true)
+  /// Calculadora e relatório de comissões dos supervisionados
+  canViewCommissions   Boolean      @default(true)
+  /// Ativar/inativar produtos no catálogo
+  canReleaseProducts   Boolean      @default(true)
+  /// Liberar (ativar/bloquear) clientes dos supervisionados
+  canReleaseClients    Boolean      @default(true)
+  /// Aprovar/reprovar descontos acima do limite dos supervisionados
+  canApproveDiscounts  Boolean      @default(false)
+  /// Atualizar o andamento (status) dos pedidos dos supervisionados
+  canUpdateOrderStatus Boolean      @default(false)
+  reps                 ManagerRep[]
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@map("manager_profiles")
+}
+
+model ManagerRep {
+  managerId  String         @db.Uuid
+  manager    ManagerProfile @relation(fields: [managerId], references: [id], onDelete: Cascade)
+  salesRepId String         @db.Uuid
+  salesRep   SalesRep       @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+
+  @@id([managerId, salesRepId])
+  @@map("manager_reps")
 }
