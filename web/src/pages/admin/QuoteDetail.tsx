@@ -36,6 +36,7 @@ export default function AdminQuoteDetail() {
       {d.convertedOrder && (
         <div className="mb-4"><Alert tone="navy" title="Convertido em pedido">Pedido <Link className="underline" to={`/admin/pedidos/${d.convertedOrder.id}`}>{d.convertedOrder.number}</Link> — <OrderStatusBadge status={d.convertedOrder.status} /></Alert></div>
       )}
+      <div className="mb-5 xl:hidden"><PdfActions kind="quotes" id={d.id} number={d.number} clientPhone={d.client.commercialPhone} disabledReason={d.discountApprovalStatus === 'PENDING' ? 'Aguardando decisão sobre o desconto.' : null} /></div>
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           <Card>
@@ -53,7 +54,7 @@ export default function AdminQuoteDetail() {
         </div>
         <div className="space-y-6">
           <TotalsCard doc={d} internal={isAdmin} title="Resumo da proposta" />
-          <PdfActions kind="quotes" id={d.id} number={d.number} clientPhone={d.client.commercialPhone} disabledReason={d.discountApprovalStatus === 'PENDING' ? 'Aguardando decisão sobre o desconto.' : null} />
+          <div className="hidden xl:block"><PdfActions kind="quotes" id={d.id} number={d.number} clientPhone={d.client.commercialPhone} disabledReason={d.discountApprovalStatus === 'PENDING' ? 'Aguardando decisão sobre o desconto.' : null} /></div>
         </div>
       </div>
       <Modal open={open} onClose={() => setOpen(false)} title="Liberar nova conversão" footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancelar</Button><Button loading={allow.isPending} onClick={() => allow.mutate()}>Liberar</Button></>}>

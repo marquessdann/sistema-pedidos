@@ -15,6 +15,7 @@ import {
   Wallet,
   Boxes,
   CheckCircle2,
+  Receipt,
 } from 'lucide-react';
 import { ORDER_STATUS_LABELS, formatBRL, formatCnpj, formatDateBR, type OrderStatus } from '@della/shared';
 import { api } from '../../lib/api';
@@ -177,14 +178,15 @@ export default function Dashboard() {
             <Stat label="Descontos concedidos" value={formatBRL(k.discountCents)} hint={k.grossCents ? `sobre ${formatBRL(k.grossCents)} bruto` : undefined} icon={<BadgePercent className="size-5" />} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat label="Separação e faturamento" value={k.picking} icon={<PackageSearch className="size-5" />} to="/admin/pedidos?status=AWAITING_PICKING,PICKING,AWAITING_SHIPMENT,INVOICED" />
-            <Stat label="Enviados / em rota" value={k.shipped} icon={<Truck className="size-5" />} to="/admin/pedidos?status=SHIPPED,OUT_FOR_DELIVERY" />
-            <Stat label="Concluídos no período" value={k.completed} icon={<CheckCircle2 className="size-5" />} tone="green" />
-            <Stat label="Orçamentos em aberto" value={k.openQuotes} icon={<FileText className="size-5" />} to="/admin/orcamentos" />
+            <Stat label="Em separação" value={k.picking} hint="Aguardando separação, separando e aguardando expedição" icon={<PackageSearch className="size-5" />} to="/admin/pedidos?status=AWAITING_PICKING,PICKING,AWAITING_SHIPMENT" />
+            <Stat label="Faturados" value={k.invoiced} hint="Nota emitida, aguardando envio" icon={<Receipt className="size-5" />} tone="gold" to="/admin/pedidos?status=INVOICED" />
+            <Stat label="Em rota" value={k.shipped} hint="Enviados e em rota de entrega" icon={<Truck className="size-5" />} to="/admin/pedidos?status=SHIPPED,OUT_FOR_DELIVERY" />
+            <Stat label="Concluídos no período" value={k.completed} hint="Entregues e concluídos" icon={<CheckCircle2 className="size-5" />} tone="green" />
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Stat label="Orçamentos em aberto" value={k.openQuotes} icon={<FileText className="size-5" />} to="/admin/orcamentos" />
             <Stat label="Clientes cadastrados" value={k.clients} icon={<Users className="size-5" />} to="/admin/clientes" />
-            <Stat label="Clientes aguardando liberação" value={k.clientsPending} icon={<UserPlus className="size-5" />} tone={k.clientsPending ? 'amber' : 'navy'} to="/admin/clientes?status=UNDER_REVIEW" />
+            <Stat label="Pendência cadastral" value={k.clientsPending} hint="Cadastros aguardando aprovação" icon={<UserPlus className="size-5" />} tone={k.clientsPending ? 'amber' : 'navy'} to="/admin/pendencias" />
             <Stat label="Produtos ativos" value={k.activeProducts} icon={<Boxes className="size-5" />} to="/admin/produtos" />
           </div>
 

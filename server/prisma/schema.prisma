@@ -218,6 +218,10 @@ model Client {
   salesRep          SalesRep?    @relation(fields: [salesRepId], references: [id])
   /// Quando verdadeiro, qualquer vendedor ativo pode atender este cliente.
   availableToAllReps Boolean     @default(false)
+  /// Análise do cadastro enviado pelo vendedor (pendência cadastral)
+  reviewNote        String?
+  reviewedById      String?      @db.Uuid
+  reviewedAt        DateTime?
   createdById       String?      @db.Uuid
   updatedById       String?      @db.Uuid
   createdAt         DateTime     @default(now())

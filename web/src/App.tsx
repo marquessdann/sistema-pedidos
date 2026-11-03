@@ -24,6 +24,7 @@ const Reports = lazy(() => import('./pages/admin/Reports'));
 const Audit = lazy(() => import('./pages/admin/Audit'));
 const Settings = lazy(() => import('./pages/admin/Settings'));
 const Commissions = lazy(() => import('./pages/admin/Commissions'));
+const Pending = lazy(() => import('./pages/admin/Pending'));
 
 const SellerHome = lazy(() => import('./pages/seller/Home'));
 const DocWizard = lazy(() => import('./pages/seller/DocWizard'));
@@ -99,8 +100,9 @@ export function App() {
         >
           <Route index element={<AdminHome />} />
           <Route path="clientes" element={<Clients />} />
-          <Route path="clientes/novo" element={<AdminOnly><ClientForm /></AdminOnly>} />
-          <Route path="clientes/:id" element={<AdminOnly><ClientForm /></AdminOnly>} />
+          <Route path="clientes/novo" element={<ClientForm />} />
+          <Route path="clientes/:id" element={<ClientForm />} />
+          <Route path="pendencias" element={<Allow perm="canReleaseClients"><Pending /></Allow>} />
           <Route path="produtos" element={<Allow perm="canReleaseProducts"><Products /></Allow>} />
           <Route path="produtos/novo" element={<AdminOnly><ProductForm /></AdminOnly>} />
           <Route path="produtos/:id" element={<AdminOnly><ProductForm /></AdminOnly>} />
@@ -138,6 +140,8 @@ export function App() {
           <Route path="orcamentos" element={<SellerQuotes />} />
           <Route path="orcamentos/:id" element={<SellerQuoteView />} />
           <Route path="catalogo" element={<Catalog />} />
+          <Route path="clientes/novo" element={<ClientForm seller />} />
+          <Route path="clientes/:id/editar" element={<ClientForm seller />} />
         </Route>
         <Route path="*" element={<Home />} />
       </Routes>

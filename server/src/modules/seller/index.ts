@@ -6,7 +6,13 @@ import { actor, requireSeller } from '../../lib/auth';
 import { notFound } from '../../lib/errors';
 import { getSettings, today } from '../../lib/settings';
 import { bpsSchema, centsSchema, isoDateOpt, optText, pageArgs, paged, paginationSchema } from '../../lib/validation';
-import { clientScopeForRep, docScopeForRep } from '../commercial/access';
+import { CLIENT_PENDING_STATUSES, clientScopeForRep, docScopeForRep } from '../commercial/access';
+import { clientSchema } from '../admin/clients';
+import { audit } from '../../lib/audit';
+import { conflict, unprocessable } from '../../lib/errors';
+
+/** Cadastro enviado pelo vendedor: sem status, vendedor ou liberação (definidos pelo servidor). */
+const sellerClientSchema = clientSchema.omit({ status: true, salesRepId: true, availableToAllReps: true });
 import { listSelectClient, orderFilterSchema, orderOrderBy, orderWhere, quoteFilterSchema, quoteOrderBy, quoteWhere } from '../commercial/filters';
 import { deleteDraft, duplicateOrder, saveSellerOrder } from '../commercial/orderService';
 import { loadRules, priceItems, publicCalc } from '../commercial/pricingService';
@@ -171,7 +177,17 @@ export async function sellerRoutes(app: FastifyInstance) {
       address: { cep: c.cep, state: c.state, city: c.city, district: c.district, street: c.street, number: c.number, complement: c.complement },
       notes: c.notes,
       status: c.status,
-      selectable: c.status === 'ACTIVE',
+      // pendente de aprovação: pode orçar; pedido só depois da aprovação
+      selectable: c.status === 'ACTIVE' || (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
+      canOrder: c.status === 'ACTIVE',
+      pendingApproval: (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
+      reviewNote: c.reviewNote,
+      editable: c.salesRepId === rep.id && (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
+      raw: {
+        stateRegistration: c.stateRegistration,
+        financeEmail: c.salesRepId === rep.id ? c.financeEmail : undefined,
+        financePhone: c.salesRepId === rep.id ? c.financePhone : undefined,
+      },
       stats: {
         orders: stats._count,
         lastOrderDate: stats._max.orderDate?.toISOString().slice(0, 10) ?? null,
@@ -180,6 +196,47 @@ export async function sellerRoutes(app: FastifyInstance) {
       recentOrders: recentOrders.map((o) => ({ ...o, orderDate: o.orderDate.toISOString().slice(0, 10) })),
       recentQuotes: recentQuotes.map((q) => ({ ...q, quoteDate: q.quoteDate.toISOString().slice(0, 10), validUntil: q.validUntil.toISOString().slice(0, 10) })),
     };
+  });
+
+  /** Vendedor cadastra cliente: entra em análise (pendência cadastral) e serve só para orçamento até a aprovação. */
+  app.post('/clients', async (req, reply) => {
+    const data = sellerClientSchema.parse(req.body);
+    const exists = await prisma.client.findUnique({ where: { cnpj: data.cnpj }, select: { id: true, salesRepId: true } });
+    if (exists) {
+      throw conflict(
+        exists.salesRepId === req.rep!.id
+          ? 'Você já cadastrou um cliente com este CNPJ. Procure-o na lista de clientes.'
+          : 'Este CNPJ já está cadastrado no sistema. Fale com o administrador.',
+        'DUPLICATE_CNPJ',
+      );
+    }
+    const c = await prisma.$transaction(async (tx) => {
+      const created = await tx.client.create({
+        data: { ...data, status: 'UNDER_REVIEW', salesRepId: req.rep!.id, createdById: req.user!.id, updatedById: req.user!.id },
+      });
+      await audit(tx, actor(req), 'CLIENT_SUBMITTED', 'client', created.id, { ...data, by: 'vendedor' });
+      return created;
+    });
+    return reply.status(201).send({ id: c.id, status: c.status, legalName: c.legalName });
+  });
+
+  /** Correção do cadastro enquanto pendente (ex.: devolvido para correção): volta para análise. */
+  app.put('/clients/:id', async (req) => {
+    const { id } = idParam.parse(req.params);
+    const data = sellerClientSchema.parse(req.body);
+    const c = await prisma.client.findFirst({ where: { id, salesRepId: req.rep!.id, deletedAt: null } });
+    if (!c) throw notFound('Cliente');
+    if (!(CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status)) {
+      throw unprocessable('Cadastro já aprovado: para alterar dados, fale com o administrador.', 'CLIENT_LOCKED');
+    }
+    if (await prisma.client.findFirst({ where: { cnpj: data.cnpj, id: { not: id } }, select: { id: true } })) {
+      throw conflict('Este CNPJ já está cadastrado no sistema. Fale com o administrador.', 'DUPLICATE_CNPJ');
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.client.update({ where: { id }, data: { ...data, status: 'UNDER_REVIEW', updatedById: req.user!.id } });
+      await audit(tx, actor(req), 'CLIENT_RESUBMITTED', 'client', id, { ...data, by: 'vendedor' });
+    });
+    return { id, status: 'UNDER_REVIEW' };
   });
 
   // ---------------- Catálogo ----------------

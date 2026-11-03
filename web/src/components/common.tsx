@@ -149,29 +149,68 @@ export function PdfActions({ kind, id, number, clientPhone, disabledReason }: { 
   const label = kind === 'orders' ? 'Pedido' : 'Orcamento';
   const fname = `${label}-${number ?? 'RASCUNHO'}.pdf`;
 
-  const share = async () => {
-    if (!latest) return;
-    try {
-      const blob = await (await fetch(fileUrl.doc(latest.id), { credentials: 'same-origin' })).blob();
-      const file = new File([blob], fname, { type: 'application/pdf' });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: fname, text: docs.data?.shareMessage });
-        return;
-      }
-      if (navigator.share) {
-        await navigator.share({ title: fname, text: docs.data?.shareMessage });
-        return;
-      }
-      toast.info('Compartilhamento nativo indisponível neste navegador. Baixe o PDF e use o botão do WhatsApp.');
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') toast.error('Não foi possível compartilhar.');
-    }
+  // o PDF é baixado em segundo plano assim que existe: no celular, o compartilhamento precisa acontecer
+  // no mesmo toque do usuário (sem esperar download), senão o navegador bloqueia
+  const pdfBlob = useQuery({
+    queryKey: ['pdf-blob', latest?.id],
+    queryFn: async () => {
+      const r = await fetch(fileUrl.doc(latest!.id), { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('Não foi possível baixar o PDF.');
+      return r.blob();
+    },
+    enabled: !!latest,
+    staleTime: Infinity,
+  });
+  const message = docs.data?.shareMessage ?? '';
+  const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+
+  const download = (blob: Blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
 
-  const openWhatsApp = () => {
-    if (!docs.data) return;
-    window.open(whatsappLink(docs.data.shareMessage, clientPhone), '_blank', 'noopener');
-    toast.info('WhatsApp aberto com a mensagem pronta. Lembre-se de anexar o PDF baixado — ele não é enviado automaticamente.', { duration: 7000 });
+  /** Envia pelo WhatsApp: no celular, com o arquivo PDF anexado; no computador, baixa o PDF e abre a conversa. */
+  const sendWhatsApp = () => {
+    if (!latest) {
+      gen.mutate(undefined, { onSuccess: () => toast.info('PDF pronto. Toque de novo em “Enviar pelo WhatsApp”.', { duration: 6000 }) });
+      return;
+    }
+    const blob = pdfBlob.data;
+    if (!blob) {
+      toast.info('Preparando o PDF… toque novamente em instantes.');
+      return;
+    }
+    const file = new File([blob], fname, { type: 'application/pdf' });
+    if (isTouch && navigator.canShare?.({ files: [file] })) {
+      navigator.share({ files: [file], text: message }).catch((e) => {
+        if ((e as Error).name !== 'AbortError') toast.error('Não foi possível abrir o compartilhamento.');
+      });
+      return;
+    }
+    // computador (ou celular sem compartilhamento de arquivo): baixa o PDF e abre o WhatsApp com a mensagem
+    download(blob);
+    window.open(whatsappLink(message, clientPhone), '_blank', 'noopener');
+    toast.info('PDF baixado e WhatsApp aberto com a mensagem. Arraste o arquivo baixado para a conversa para anexar.', { duration: 9000 });
+  };
+
+  const share = () => {
+    const blob = pdfBlob.data;
+    if (!blob) return toast.info('Preparando o PDF… tente em instantes.');
+    const file = new File([blob], fname, { type: 'application/pdf' });
+    if (navigator.canShare?.({ files: [file] })) {
+      navigator.share({ files: [file], title: fname, text: message }).catch((e) => {
+        if ((e as Error).name !== 'AbortError') toast.error('Não foi possível compartilhar.');
+      });
+    } else {
+      download(blob);
+      toast.info('PDF baixado. Envie pelo aplicativo que preferir.');
+    }
   };
 
   return (
@@ -181,23 +220,27 @@ export function PdfActions({ kind, id, number, clientPhone, disabledReason }: { 
         <p className="text-sm text-muted">{disabledReason}</p>
       ) : (
         <>
+          <Button
+            variant="success"
+            size="lg"
+            className="mb-3 w-full"
+            icon={<MessageCircle className="size-5" />}
+            loading={gen.isPending}
+            onClick={sendWhatsApp}
+          >
+            Enviar pelo WhatsApp
+          </Button>
           <div className="flex flex-wrap gap-2">
-            <Button variant={latest ? 'secondary' : 'gold'} icon={latest ? <RefreshCw className="size-4" /> : <FileText className="size-4" />} loading={gen.isPending} onClick={() => gen.mutate()}>
-              {latest ? 'Gerar novamente' : 'Gerar PDF'}
-            </Button>
             {latest && (
               <>
-                <a href={fileUrl.doc(latest.id)} target="_blank" rel="noopener" className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-navy-900 hover:bg-navy-50">
+                <a href={fileUrl.doc(latest.id)} target="_blank" rel="noopener" className="inline-flex h-11 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-navy-900 hover:bg-navy-50 sm:h-10">
                   <Eye className="size-4" /> Visualizar
                 </a>
-                <a href={fileUrl.doc(latest.id, true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-navy-900 hover:bg-navy-50">
+                <a href={fileUrl.doc(latest.id, true)} className="inline-flex h-11 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-navy-900 hover:bg-navy-50 sm:h-10">
                   <Download className="size-4" /> Baixar
                 </a>
                 <Button variant="secondary" icon={<Share2 className="size-4" />} onClick={share}>
                   Compartilhar
-                </Button>
-                <Button variant="success" icon={<MessageCircle className="size-4" />} onClick={openWhatsApp}>
-                  WhatsApp
                 </Button>
                 {integrations.data?.email && (
                   <Button variant="secondary" icon={<Mail className="size-4" />} onClick={() => setEmailOpen(true)}>
@@ -206,6 +249,9 @@ export function PdfActions({ kind, id, number, clientPhone, disabledReason }: { 
                 )}
               </>
             )}
+            <Button variant={latest ? 'ghost' : 'gold'} icon={latest ? <RefreshCw className="size-4" /> : <FileText className="size-4" />} loading={gen.isPending} onClick={() => gen.mutate()}>
+              {latest ? 'Gerar novamente' : 'Gerar PDF'}
+            </Button>
           </div>
           {latest ? (
             <p className="mt-3 text-xs text-muted">
@@ -216,7 +262,11 @@ export function PdfActions({ kind, id, number, clientPhone, disabledReason }: { 
           ) : (
             <p className="mt-3 text-xs text-muted">Nenhum PDF gerado ainda.</p>
           )}
-          {latest && <p className="mt-1 text-xs text-muted">No WhatsApp a mensagem é preparada para você; o PDF precisa ser anexado manualmente (ou use “Compartilhar” no celular).</p>}
+          <p className="mt-1 text-xs text-muted">
+            {isTouch
+              ? 'No celular, o PDF vai anexado: escolha o WhatsApp e o contato.'
+              : 'No computador, o PDF é baixado e o WhatsApp abre com a mensagem pronta — arraste o arquivo para a conversa.'}
+          </p>
         </>
       )}
       {latest && <EmailModal open={emailOpen} onClose={() => setEmailOpen(false)} docId={latest.id} defaultMessage={docs.data?.shareMessage ?? ''} />}

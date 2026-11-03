@@ -5,6 +5,7 @@ import { prisma } from '../../db';
 import { actor } from '../../lib/auth';
 import { audit, diff } from '../../lib/audit';
 import { conflict, notFound, unprocessable } from '../../lib/errors';
+import { pendingClients, reviewClient } from '../commercial/clientReview';
 import { cepOpt, cnpjSchema, emailOpt, optText, pageArgs, paged, paginationSchema, phoneOpt, reqText } from '../../lib/validation';
 
 export const clientSchema = z.object({
@@ -36,7 +37,7 @@ async function userNames(ids: (string | null)[]) {
   return Object.fromEntries(users.map((u) => [u.id, u.name]));
 }
 
-async function validateClient(data: z.infer<typeof clientSchema>, excludeId?: string) {
+export async function validateClient(data: z.infer<typeof clientSchema>, excludeId?: string) {
   if (data.status === 'ACTIVE' && !data.salesRepId && !data.availableToAllReps) {
     throw unprocessable('Para ativar o cliente, defina o vendedor responsável ou libere para todos os vendedores.', 'CLIENT_NEEDS_REP');
   }
@@ -103,6 +104,18 @@ export async function adminClientRoutes(app: FastifyInstance) {
       updatedByName: c.updatedById ? names[c.updatedById] ?? null : null,
       stats: { orders: stats._count, totalCents: stats._sum.totalCents ?? 0, lastOrderDate: stats._max.orderDate?.toISOString().slice(0, 10) ?? null },
     };
+  });
+
+  // Pendência cadastral: clientes enviados pelos vendedores
+  app.get('/clients-pending', async () => {
+    const items = await pendingClients();
+    return { items, total: items.length };
+  });
+
+  app.post('/clients/:id/review', async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const b = z.object({ decision: z.enum(['APPROVE', 'RETURN', 'REJECT']), note: z.string().trim().max(1000).nullish() }).parse(req.body);
+    return reviewClient({ ...actor(req), userId: req.user!.id }, id, b.decision, b.note ?? null);
   });
 
   app.post('/clients/parse-text', async (req) => {

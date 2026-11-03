@@ -68,6 +68,7 @@ export default function SellerOrderView() {
       )}
       {isDraft && o.number && <div className="mb-4"><Alert tone="amber" title="Desconto não aprovado">O administrador reprovou o desconto solicitado. Ajuste o desconto e confirme novamente — o número {o.number} será mantido.</Alert></div>}
       {o.readOnly && <div className="mb-4"><Alert tone="navy">Pedido de {o.salesRep.fullName} — visualização somente leitura.</Alert></div>}
+      <div className="mb-5 xl:hidden"><PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} /></div>
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           <Card>
@@ -86,7 +87,7 @@ export default function SellerOrderView() {
         </div>
         <div className="space-y-6">
           <TotalsCard doc={o} />
-          <PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} />
+          <div className="hidden xl:block"><PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} /></div>
           <Card>
             <CardTitle>Andamento</CardTitle>
             <OrderTimeline status={o.status} history={o.statusHistory} />

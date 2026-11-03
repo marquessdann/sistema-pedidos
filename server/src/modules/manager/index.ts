@@ -13,6 +13,9 @@ import { allowedTransitions, changeOrderStatus } from '../commercial/orderServic
 import { expireQuotes } from '../commercial/quoteService';
 import { orderDetailInclude, quoteDetailInclude, serializeDoc } from '../commercial/serializers';
 import { dashboardData, sendCommissions } from '../admin/reports';
+import { clientSchema, validateClient } from '../admin/clients';
+import { pendingClients, reviewClient } from '../commercial/clientReview';
+import { conflict } from '../../lib/errors';
 
 /**
  * Rotas do GESTOR (/api/manager/*), ex.: Vinicius.
@@ -216,6 +219,70 @@ export async function managerRoutes(app: FastifyInstance) {
       prisma.client.count({ where }),
     ]);
     return paged(items, total, q);
+  });
+
+  // Cadastro de clientes pelo gestor (somente para os vendedores que acompanha)
+  app.get('/clients/:id', async (req) => {
+    const { id } = idParam.parse(req.params);
+    const c = await prisma.client.findFirst({ where: { id, deletedAt: null, salesRepId: { in: repIds(req) } }, include: { salesRep: { select: { id: true, fullName: true } } } });
+    if (!c) throw notFound('Cliente');
+    const stats = await prisma.order.aggregate({ where: { clientId: id, status: { notIn: ['DRAFT', 'CANCELLED', 'REJECTED'] } }, _count: true, _sum: { totalCents: true }, _max: { orderDate: true } });
+    return { ...c, stats: { orders: stats._count, totalCents: stats._sum.totalCents ?? 0, lastOrderDate: stats._max.orderDate?.toISOString().slice(0, 10) ?? null } };
+  });
+
+  app.post('/clients/check-duplicate', async (req) => {
+    const b = z.object({ cnpj: z.string().optional(), excludeId: z.string().uuid().optional() }).parse(req.body);
+    const cnpj = normalizeCnpj(b.cnpj);
+    const dup = cnpj.length === 14 ? await prisma.client.findFirst({ where: { cnpj, ...(b.excludeId ? { id: { not: b.excludeId } } : {}) }, select: { id: true, legalName: true, salesRepId: true } }) : null;
+    // dados de clientes de outros vendedores não são expostos ao gestor
+    const visible = dup && dup.salesRepId && repIds(req).includes(dup.salesRepId);
+    return { cnpjDuplicate: dup ? (visible ? { id: dup.id, legalName: dup.legalName, cnpj } : { id: null, legalName: 'cliente já cadastrado (outro vendedor)', cnpj }) : null, similarNames: [] };
+  });
+
+  const managerClient = (req: FastifyRequest) => {
+    const data = clientSchema.parse(req.body);
+    if (!data.salesRepId || !repIds(req).includes(data.salesRepId)) throw forbidden('Escolha um dos vendedores que você acompanha.');
+    // sem permissão de liberar, o cadastro do gestor também entra em análise
+    if (!req.manager!.perms.canReleaseClients) data.status = 'UNDER_REVIEW';
+    return { ...data, availableToAllReps: false };
+  };
+
+  app.post('/clients', async (req, reply) => {
+    const data = managerClient(req);
+    if (await prisma.client.findUnique({ where: { cnpj: data.cnpj }, select: { id: true } })) throw conflict('Este CNPJ já está cadastrado no sistema.', 'DUPLICATE_CNPJ');
+    await validateClient(data);
+    const c = await prisma.$transaction(async (tx) => {
+      const created = await tx.client.create({ data: { ...data, createdById: req.user!.id, updatedById: req.user!.id } });
+      await audit(tx, actor(req), 'CLIENT_CREATED', 'client', created.id, { ...data, by: 'gestor' });
+      return created;
+    });
+    return reply.status(201).send(c);
+  });
+
+  app.put('/clients/:id', async (req) => {
+    const { id } = idParam.parse(req.params);
+    const data = managerClient(req);
+    const before = await prisma.client.findFirst({ where: { id, deletedAt: null, salesRepId: { in: repIds(req) } } });
+    if (!before) throw notFound('Cliente');
+    if (!req.manager!.perms.canReleaseClients) data.status = before.status;
+    await validateClient(data, id);
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.client.update({ where: { id }, data: { ...data, updatedById: req.user!.id } });
+      await audit(tx, actor(req), before.status !== data.status ? 'CLIENT_STATUS_CHANGED' : 'CLIENT_UPDATED', 'client', id, { by: 'gestor' });
+      return updated;
+    });
+  });
+
+  // Pendência cadastral (clientes enviados pelos vendedores que acompanha)
+  app.get('/clients-pending', { preHandler: managerCan('canReleaseClients') }, async (req) => {
+    const items = await pendingClients(repIds(req));
+    return { items, total: items.length };
+  });
+
+  app.post('/clients/:id/review', { preHandler: managerCan('canReleaseClients') }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const b = z.object({ decision: z.enum(['APPROVE', 'RETURN', 'REJECT']), note: z.string().trim().max(1000).nullish() }).parse(req.body);
+    return reviewClient({ ...actor(req), userId: req.user!.id }, id, b.decision, b.note ?? null, repIds(req));
   });
 
   app.post('/clients/:id/status', { preHandler: managerCan('canReleaseClients') }, async (req) => {

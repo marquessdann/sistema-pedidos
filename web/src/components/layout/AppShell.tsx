@@ -19,6 +19,7 @@ import {
   Settings,
   ShieldCheck,
   Tags,
+  UserCheck,
   UserCog,
   Users,
   Warehouse,
@@ -56,6 +57,12 @@ export function AppShell() {
 
   useEffect(() => setOpen(false), [loc.pathname]);
 
+  const pendingClients = useQuery({
+    queryKey: ['clients-pending'],
+    queryFn: () => api<{ total: number }>('/admin/clients-pending'),
+    enabled: can('canReleaseClients'),
+    refetchInterval: 60_000,
+  });
   const pending = useQuery({
     queryKey: ['approvals-count'],
     queryFn: () => api<{ total: number }>('/admin/approvals', { query: { status: 'PENDING', pageSize: 1 } }),
@@ -67,6 +74,7 @@ export function AppShell() {
     ? ([
         can('canViewSales') && { to: '/admin', label: 'Painel', short: 'Painel', icon: <LayoutDashboard />, end: true },
         can('canViewSales') && { to: '/admin/pedidos', label: 'Vendas', icon: <ClipboardList /> },
+        can('canReleaseClients') && { to: '/admin/pendencias', label: 'Pendência cadastral', short: 'Pendências', icon: <UserCheck />, badge: pendingClients.data?.total },
         can('canViewSales') && { to: '/admin/orcamentos', label: 'Orçamentos', icon: <FileText /> },
         can('canViewCommissions') && { to: '/admin/comissoes', label: 'Comissões', icon: <Calculator /> },
         can('canApproveDiscounts') && { to: '/admin/aprovacoes', label: 'Aprovações', icon: <ClipboardCheck />, badge: pending.data?.total },
@@ -77,6 +85,7 @@ export function AppShell() {
     ? [
         { to: '/admin', label: 'Dashboard', short: 'Painel', icon: <LayoutDashboard />, end: true },
         { to: '/admin/clientes', label: 'Clientes', icon: <Users /> },
+        { to: '/admin/pendencias', label: 'Pendência cadastral', short: 'Pendências', icon: <UserCheck />, badge: pendingClients.data?.total },
         { to: '/admin/produtos', label: 'Produtos', icon: <Package /> },
         { to: '/admin/marcas', label: 'Marcas e categorias', icon: <Tags /> },
         { to: '/admin/vendedores', label: 'Vendedores', icon: <UserCog /> },
@@ -153,7 +162,7 @@ export function AppShell() {
   const bottom = isManager
     ? items.slice(0, 4).map((i) => i.to)
     : isAdmin
-      ? ['/admin', '/admin/pedidos', '/admin/aprovacoes', '/admin/clientes']
+      ? ['/admin', '/admin/pedidos', '/admin/pendencias', '/admin/clientes']
       : ['/vendedor', '/vendedor/pedidos', '/vendedor/processo', '/vendedor/orcamentos'];
   const bottomItems = bottom.map((to) => items.find((i) => i.to === to)!).filter(Boolean);
 

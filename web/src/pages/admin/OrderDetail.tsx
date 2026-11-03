@@ -59,6 +59,7 @@ export default function AdminOrderDetail() {
         <div className="mb-4"><Alert tone="amber" title="Desconto aguardando decisão">Este pedido tem um desconto acima do limite do vendedor. Decida em <Link className="underline" to="/admin/aprovacoes">Aprovações</Link> (administrador ou gestor com permissão).</Alert></div>
       )}
       {o.status === 'CANCELLED' && o.cancelReason && <div className="mb-4"><Alert tone="red" title="Pedido cancelado">{o.cancelReason}</Alert></div>}
+      <div className="mb-5 xl:hidden"><PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} /></div>
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           <Card>
@@ -121,7 +122,7 @@ export default function AdminOrderDetail() {
             <CardTitle>Processo do pedido</CardTitle>
             <OrderTimeline status={o.status} history={o.statusHistory} />
           </Card>
-          <PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} />
+          <div className="hidden xl:block"><PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} /></div>
         </div>
       </div>
 

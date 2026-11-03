@@ -179,7 +179,7 @@ describe('Pedidos', () => {
   });
 
   it('não permite cliente inativo/pendente, produto inativo nem cliente de outro vendedor', async () => {
-    expect((await victor.post('/api/seller/orders', orderBody({ clientId: fx.clientPending }))).body.error).toBe('CLIENT_NOT_ACTIVE');
+    expect((await victor.post('/api/seller/orders', orderBody({ clientId: fx.clientPending }))).body.error).toBe('CLIENT_PENDING_APPROVAL');
     expect((await victor.post('/api/seller/orders', orderBody({ items: [{ productId: fx.inactiveProduct, quantity: 1 }] }))).body.error).toBe('PRODUCT_INACTIVE');
     expect((await victor.post('/api/seller/orders', orderBody({ clientId: fx.clientAna }))).status).toBe(404);
   });

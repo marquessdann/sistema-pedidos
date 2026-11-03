@@ -52,6 +52,7 @@ export default function SellerQuoteView() {
       {d.discountApprovalStatus === 'PENDING' && <div className="mb-4"><Alert tone="amber" title="Aguardando aprovação do desconto">O PDF, o envio ao cliente e a conversão em pedido serão liberados após a decisão do administrador.</Alert></div>}
       {d.discountApprovalStatus === 'REJECTED' && open && <div className="mb-4"><Alert tone="red" title="Desconto reprovado">Edite o orçamento e ajuste o desconto para o seu limite.</Alert></div>}
       {d.convertedOrder && <div className="mb-4"><Alert tone="navy" title="Convertido em pedido">Pedido <Link className="font-semibold underline" to={`/vendedor/pedidos/${d.convertedOrder.id}`}>{d.convertedOrder.number}</Link> <OrderStatusBadge status={d.convertedOrder.status} />. O histórico do orçamento foi preservado.</Alert></div>}
+      <div className="mb-5 xl:hidden"><PdfActions kind="quotes" id={d.id} number={d.number} clientPhone={d.client.commercialPhone} disabledReason={d.discountApprovalStatus === 'PENDING' ? 'Disponível após a aprovação do desconto.' : null} /></div>
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           <Card>
@@ -63,7 +64,7 @@ export default function SellerQuoteView() {
         </div>
         <div className="space-y-6">
           <TotalsCard doc={d} title="Resumo da proposta" />
-          <PdfActions kind="quotes" id={d.id} number={d.number} clientPhone={d.client.commercialPhone} disabledReason={d.discountApprovalStatus === 'PENDING' ? 'Disponível após a aprovação do desconto.' : null} />
+          <div className="hidden xl:block"><PdfActions kind="quotes" id={d.id} number={d.number} clientPhone={d.client.commercialPhone} disabledReason={d.discountApprovalStatus === 'PENDING' ? 'Disponível após a aprovação do desconto.' : null} /></div>
           {open && !d.readOnly && (
             <Card>
               <CardTitle>Situação com o cliente</CardTitle>

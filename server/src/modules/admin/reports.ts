@@ -436,17 +436,18 @@ export async function dashboardData(raw: unknown, repIds?: string[]) {
     const period = { orderDate: { gte: new Date(`${f.from}T00:00:00Z`), lte: new Date(`${f.to}T00:00:00Z`) } };
     const base = { ...repCond, ...clientCond };
 
-    const [clients, clientsPending, activeProducts, ordersToday, pendingApproval, picking, shipped, completed, openQuotes, pendingDiscounts] = await Promise.all([
+    const [clients, clientsPending, activeProducts, ordersToday, pendingApproval, picking, shipped, completed, openQuotes, pendingDiscounts, invoiced] = await Promise.all([
       prisma.client.count({ where: { deletedAt: null, ...repCond } }),
       prisma.client.count({ where: { deletedAt: null, ...(repIds ? repCond : {}), status: { in: ['PENDING_REGISTRATION', 'UNDER_REVIEW'] } } }),
       prisma.product.count({ where: { deletedAt: null, active: true } }),
       prisma.order.count({ where: { ...base, orderDate: new Date(`${t}T00:00:00Z`), status: { notIn: ['DRAFT'] } } }),
       prisma.order.count({ where: { ...base, ...statusIn(['CREATED', 'PENDING_APPROVAL']) } }),
-      prisma.order.count({ where: { ...base, ...statusIn(['AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT', 'INVOICED']) } }),
+      prisma.order.count({ where: { ...base, ...statusIn(['AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT']) } }),
       prisma.order.count({ where: { ...base, ...statusIn(['SHIPPED', 'OUT_FOR_DELIVERY']) } }),
       prisma.order.count({ where: { ...base, ...period, ...statusIn(['DELIVERED', 'COMPLETED']) } }),
       prisma.quote.count({ where: { ...base, status: { in: ['DRAFT', 'SENT', 'AWAITING_RESPONSE', 'APPROVED_BY_CLIENT'] } } }),
       prisma.discountApproval.count({ where: { status: 'PENDING', ...repCond } }),
+      prisma.order.count({ where: { ...base, ...statusIn(['INVOICED']) } }),
     ]);
     const confirmedWhere = { ...base, ...period, ...statusIn([...ORDER_CONFIRMED_STATUSES]) };
     const agg = await prisma.order.aggregate({
@@ -490,6 +491,7 @@ export async function dashboardData(raw: unknown, repIds?: string[]) {
         pendingApproval,
         pendingDiscounts,
         picking,
+        invoiced,
         shipped,
         completed,
         openQuotes,

@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Building2, ClipboardList, FilePlus2, FileSearch, Lock, Mail, Phone, Route, Search, ShoppingCart, User, X } from 'lucide-react';
+import { Building2, ClipboardList, FilePlus2, FileSearch, Lock, Mail, Pencil, Phone, Route, Search, ShoppingCart, User, UserPlus, X } from 'lucide-react';
 import { formatBRL, formatCnpj, formatDateBR, formatPhone } from '@della/shared';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useDebounced, useSessionState } from '../../lib/hooks';
-import { Button, Card, CardTitle, EmptyState, ErrorState, Input, KeyValue, Loading, cx } from '../../components/ui';
+import { Alert, Button, Card, CardTitle, EmptyState, ErrorState, Input, KeyValue, LinkButton, Loading, cx } from '../../components/ui';
 import { ClientStatusBadge, OrderStatusBadge, QuoteStatusBadge } from '../../components/common';
 
 interface ClientCard {
@@ -46,7 +46,12 @@ export default function SellerHome() {
         <ClientPanel id={selected} onClear={() => setSelected(null)} />
       ) : (
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-navy-900">Selecione o cliente</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-navy-900">Selecione o cliente</h2>
+            <LinkButton to="/vendedor/clientes/novo" variant="gold" icon={<UserPlus className="size-4" />}>
+              Cadastrar cliente
+            </LinkButton>
+          </div>
           <div className="relative mb-5">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted" />
             <Input autoFocus className="h-12 rounded-xl pl-12 text-base shadow-sm" placeholder="Pesquise por razão social, nome fantasia, CNPJ ou responsável" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -57,12 +62,17 @@ export default function SellerHome() {
             <ErrorState error={list.error} onRetry={() => list.refetch()} />
           ) : list.data!.items.length === 0 ? (
             <Card>
-              <EmptyState title={q ? 'Nenhum cliente encontrado' : 'Você ainda não tem clientes liberados'} description="Envie os dados cadastrais do novo cliente para o administrador pelo WhatsApp. Assim que ele for cadastrado e ativado, aparecerá aqui." />
+              <EmptyState
+                title={q ? 'Nenhum cliente encontrado' : 'Você ainda não tem clientes'}
+                description="Cadastre o cliente aqui mesmo. Enquanto o administrador aprova, você já pode fazer orçamentos para ele."
+                action={<LinkButton to="/vendedor/clientes/novo" variant="gold" icon={<UserPlus className="size-4" />}>Cadastrar cliente</LinkButton>}
+              />
             </Card>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {list.data!.items.map((c) => {
-                const ok = c.status === 'ACTIVE';
+                const pending = c.status === 'UNDER_REVIEW' || c.status === 'PENDING_REGISTRATION';
+                const ok = c.status === 'ACTIVE' || pending;
                 return (
                   <button
                     key={c.id}
@@ -83,9 +93,14 @@ export default function SellerHome() {
                     {c.tradeName && <p className="truncate text-xs text-muted">{c.legalName}</p>}
                     <p className="mt-1 text-sm tabular text-ink">{formatCnpj(c.cnpj)}</p>
                     <p className="mt-1 text-xs text-muted">{[c.responsibleName, [c.city, c.state].filter(Boolean).join('/')].filter(Boolean).join(' • ')}</p>
-                    {!ok && (
+                    {pending && (
                       <p className="mt-2 flex items-center gap-1 text-xs text-amber-700">
-                        <Lock className="size-3" /> Aguardando liberação do administrador
+                        <Lock className="size-3" /> {c.status === 'PENDING_REGISTRATION' ? 'Correção solicitada' : 'Em aprovação'} • só orçamento
+                      </p>
+                    )}
+                    {!ok && (
+                      <p className="mt-2 flex items-center gap-1 text-xs text-red-700">
+                        <Lock className="size-3" /> Indisponível — fale com o administrador
                       </p>
                     )}
                   </button>
@@ -114,7 +129,9 @@ function ClientPanel({ id, onClear }: { id: string; onClear: () => void }) {
   }
   const c = q.data;
   const actions = [
-    { label: 'Realizar novo pedido', desc: 'Catálogo, quantidades e desconto', icon: <ShoppingCart className="size-6" />, to: `/vendedor/novo-pedido?cliente=${id}`, primary: true },
+    c.canOrder
+      ? { label: 'Realizar novo pedido', desc: 'Catálogo, quantidades e desconto', icon: <ShoppingCart className="size-6" />, to: `/vendedor/novo-pedido?cliente=${id}`, primary: true }
+      : { label: 'Pedido bloqueado', desc: 'Liberado após a aprovação do cadastro', icon: <Lock className="size-6" />, to: '', primary: false, locked: true },
     { label: 'Fazer orçamento', desc: 'Proposta comercial em PDF', icon: <FilePlus2 className="size-6" />, to: `/vendedor/novo-orcamento?cliente=${id}`, primary: true },
     { label: 'Consultar pedidos', desc: 'Pedidos deste cliente', icon: <ClipboardList className="size-6" />, to: `/vendedor/pedidos?cliente=${id}` },
     { label: 'Processo do pedido', desc: 'Andamento e etapas', icon: <Route className="size-6" />, to: `/vendedor/processo?cliente=${id}` },
@@ -139,22 +156,38 @@ function ClientPanel({ id, onClear }: { id: string; onClear: () => void }) {
         </div>
       </Card>
 
+      {c.pendingApproval && (
+        <Alert tone="amber" title={c.status === 'PENDING_REGISTRATION' ? 'Correção solicitada no cadastro' : 'Cadastro aguardando aprovação'}>
+          {c.reviewNote && <p className="mb-1 font-medium">“{c.reviewNote}”</p>}
+          Por enquanto você pode fazer <strong>orçamentos</strong> para este cliente. Depois que o administrador ou o gestor aprovar, você poderá fazer pedidos e transformar os orçamentos em pedido.
+          {c.editable && (
+            <div className="mt-2">
+              <LinkButton to={`/vendedor/clientes/${id}/editar`} size="sm" icon={<Pencil className="size-4" />}>Corrigir cadastro</LinkButton>
+            </div>
+          )}
+        </Alert>
+      )}
+
       {!c.selectable && (
         <Card><EmptyState title="Cliente indisponível" description="Este cliente não está ativo. Solicite a liberação ao administrador." /></Card>
       )}
 
       {c.selectable && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {actions.map((a) => (
+          {actions.map((a: { label: string; desc: string; icon: React.ReactNode; to: string; primary?: boolean; locked?: boolean }) => (
             <button
               key={a.label}
+              disabled={a.locked}
               onClick={() => nav(a.to)}
               className={cx(
-                'flex flex-col items-start gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md',
-                a.primary ? 'border-navy-900 bg-navy-900 text-white hover:bg-navy-800' : 'border-line bg-white text-navy-900 hover:border-gold-300',
+                'flex flex-col items-start gap-3 rounded-xl border p-4 text-left transition',
+                a.locked
+                  ? 'cursor-not-allowed border-dashed border-line bg-slate-50 text-muted'
+                  : 'hover:-translate-y-0.5 hover:shadow-md',
+                !a.locked && (a.primary ? 'border-navy-900 bg-navy-900 text-white hover:bg-navy-800' : 'border-line bg-white text-navy-900 hover:border-gold-300'),
               )}
             >
-              <span className={a.primary ? 'text-gold-300' : 'text-gold-500'}>{a.icon}</span>
+              <span className={a.locked ? 'text-slate-400' : a.primary ? 'text-gold-300' : 'text-gold-500'}>{a.icon}</span>
               <span>
                 <span className="block font-semibold">{a.label}</span>
                 <span className={cx('block text-xs', a.primary ? 'text-navy-200' : 'text-muted')}>{a.desc}</span>

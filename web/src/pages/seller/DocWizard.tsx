@@ -206,6 +206,17 @@ export default function DocWizard({ mode }: { mode: Mode }) {
   }
   const cfg = config.data!;
   const c = client.data;
+  if (!isQuote && c && c.canOrder === false) {
+    return (
+      <Card>
+        <EmptyState
+          title="Cadastro do cliente aguardando aprovação"
+          description="Enquanto o administrador ou o gestor não aprovar o cadastro, faça um orçamento. Depois da aprovação, é só transformar o orçamento em pedido."
+          action={<Button onClick={() => nav(`/vendedor/novo-orcamento?cliente=${c.id}`)}>Fazer orçamento</Button>}
+        />
+      </Card>
+    );
+  }
 
   // ---------- itens ----------
   const addProduct = (p: CatalogProduct, qty: number, saleUnit: SaleUnit) => {

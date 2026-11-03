@@ -3,11 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Plus, Search } from 'lucide-react';
 import { CLIENT_STATUS_LABELS, formatCnpj, formatDateBR, formatPhone } from '@della/shared';
-import { api, errorMessage } from '../../lib/api';
+import { api } from '../../lib/api';
 import { useRole } from '../../lib/auth';
-import { toast } from 'sonner';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, Field, Modal } from '../../components/ui';
 import { useDebounced } from '../../lib/hooks';
 import { Card, DataTable, ErrorState, Input, LinkButton, PageHeader, Pagination, Select } from '../../components/ui';
 import { ClientStatusBadge } from '../../components/common';
@@ -28,19 +25,7 @@ interface ClientRow {
 
 export default function Clients() {
   const nav = useNavigate();
-  const qc = useQueryClient();
-  const { isAdmin, can } = useRole();
-  const [release, setRelease] = useState<ClientRow | null>(null);
-  const [newStatus, setNewStatus] = useState('ACTIVE');
-  const saveStatus = useMutation({
-    mutationFn: () => api(`/admin/clients/${release!.id}/status`, { body: { status: newStatus } }),
-    onSuccess: () => {
-      toast.success('Status do cliente atualizado.');
-      setRelease(null);
-      void qc.invalidateQueries({ queryKey: ['clients'] });
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
+  const { isAdmin } = useRole();
   const [params] = useSearchParams();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState(params.get('status') ?? '');
@@ -60,7 +45,7 @@ export default function Clients() {
       <PageHeader
         title="Clientes"
         subtitle={isAdmin ? 'Cadastro e liberação de clientes para os representantes' : 'Clientes dos vendedores que você acompanha'}
-        actions={isAdmin && <LinkButton to="/admin/clientes/novo" variant="primary" icon={<Plus className="size-4" />}>Novo cliente</LinkButton>}
+        actions={<LinkButton to="/admin/clientes/novo" variant="primary" icon={<Plus className="size-4" />}>Novo cliente</LinkButton>}
       />
       <Card padded={false}>
         <div className="grid gap-3 border-b border-line p-4 md:grid-cols-[1fr_200px_200px_160px]">
@@ -88,16 +73,7 @@ export default function Clients() {
             rows={list.data?.items}
             loading={list.isFetching}
             rowKey={(r) => r.id}
-            onRowClick={
-              isAdmin
-                ? (r) => nav(`/admin/clientes/${r.id}`)
-                : can('canReleaseClients')
-                  ? (r) => {
-                      setNewStatus(r.status === 'ACTIVE' ? 'BLOCKED' : 'ACTIVE');
-                      setRelease(r);
-                    }
-                  : undefined
-            }
+            onRowClick={(r) => nav(`/admin/clientes/${r.id}`)}
             mobileCard={(r) => (
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -122,28 +98,6 @@ export default function Clients() {
         )}
         {list.data && <Pagination page={list.data.page} pages={list.data.pages} total={list.data.total} onPage={setPage} />}
       </Card>
-      <Modal
-        open={!!release}
-        onClose={() => setRelease(null)}
-        title="Liberação do cliente"
-        size="sm"
-        footer={<><Button variant="secondary" onClick={() => setRelease(null)}>Cancelar</Button><Button loading={saveStatus.isPending} onClick={() => saveStatus.mutate()}>Salvar</Button></>}
-      >
-        {release && (
-          <div className="space-y-4">
-            <div>
-              <p className="font-medium text-navy-900">{release.legalName}</p>
-              <p className="text-sm text-muted">{formatCnpj(release.cnpj)} • status atual: <ClientStatusBadge status={release.status} /></p>
-            </div>
-            <Field label="Novo status">
-              <Select value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
-                {Object.entries(CLIENT_STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </Select>
-            </Field>
-            <p className="text-xs text-muted">Somente clientes “Ativos” podem receber pedidos do vendedor. Alterações de cadastro são feitas pelo administrador.</p>
-          </div>
-        )}
-      </Modal>
     </>
   );
 }

@@ -18,6 +18,7 @@ import {
   type ParsedClient,
 } from '@della/shared';
 import { api, errorMessage, fieldErrors } from '../../lib/api';
+import { useRole } from '../../lib/auth';
 import { useDebounced } from '../../lib/hooks';
 import { Alert, Button, Card, CardTitle, Field, Input, KeyValue, Loading, MaskedInput, Modal, PageHeader, Select, Textarea, Toggle } from '../../components/ui';
 import { ClientStatusBadge } from '../../components/common';
@@ -46,22 +47,39 @@ const EMPTY = {
 };
 type Form = typeof EMPTY;
 
-export default function ClientForm() {
+/**
+ * Cadastro de cliente para os três perfis:
+ * - administrador: formulário completo;
+ * - gestor: somente para os vendedores que acompanha (status só com permissão de liberar);
+ * - vendedor (seller): sem status/vendedor — o cadastro vai para "Pendência cadastral" e serve só para orçamento até a aprovação.
+ */
+export default function ClientForm({ seller = false }: { seller?: boolean }) {
   const { id } = useParams();
   const isNew = !id;
   const nav = useNavigate();
+  const { isAdmin, isManager, can } = useRole();
+  const base = seller ? '/seller/clients' : '/admin/clients';
+  const listPath = seller ? '/vendedor' : '/admin/clientes';
   const qc = useQueryClient();
   const [f, setF] = useState<Form>(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }));
 
-  const reps = useQuery({ queryKey: ['reps'], queryFn: () => api<{ id: string; fullName: string; active: boolean }[]>('/admin/reps') });
-  const existing = useQuery({ queryKey: ['client', id], queryFn: () => api<any>(`/admin/clients/${id}`), enabled: !isNew });
+  const reps = useQuery({ queryKey: ['reps'], queryFn: () => api<{ id: string; fullName: string; active: boolean }[]>('/admin/reps'), enabled: !seller });
+  const existing = useQuery({ queryKey: ['client', base, id], queryFn: () => api<any>(`${base}/${id}`), enabled: !isNew });
+
+  // gestor que acompanha um único vendedor já começa com ele selecionado
+  useEffect(() => {
+    if (isNew && isManager && reps.data?.length === 1) setF((p) => ({ ...p, salesRepId: p.salesRepId || reps.data![0].id, status: can('canReleaseClients') ? 'ACTIVE' : 'UNDER_REVIEW' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reps.data, isNew, isManager]);
 
   useEffect(() => {
-    const c = existing.data;
-    if (!c) return;
+    const raw = existing.data;
+    if (!raw) return;
+    // o endpoint do vendedor devolve o endereço agrupado
+    const c = seller ? { ...raw, ...raw.address, ...raw.raw } : raw;
     setF({
       legalName: c.legalName ?? '',
       tradeName: c.tradeName ?? '',
@@ -92,18 +110,32 @@ export default function ClientForm() {
   const dup = useQuery({
     queryKey: ['client-dup', dCnpj, dName, id],
     queryFn: () => api<{ cnpjDuplicate: any; similarNames: any[] }>('/admin/clients/check-duplicate', { body: { cnpj: dCnpj, legalName: dName, excludeId: id } }),
-    enabled: onlyDigits(dCnpj).length >= 11 || dName.length >= 4,
+    enabled: !seller && (onlyDigits(dCnpj).length >= 11 || dName.length >= 4),
   });
 
   const save = useMutation({
     mutationFn: () => {
-      const body = { ...f, state: f.state || null, salesRepId: f.salesRepId || null };
-      return isNew ? api('/admin/clients', { body }) : api(`/admin/clients/${id}`, { method: 'PUT', body });
+      const body: Record<string, unknown> = { ...f, state: f.state || null, salesRepId: f.salesRepId || null };
+      if (seller) {
+        delete body.status;
+        delete body.salesRepId;
+        delete body.availableToAllReps;
+      }
+      return isNew ? api(base, { body }) : api(`${base}/${id}`, { method: 'PUT', body });
     },
     onSuccess: (c: any) => {
+      void qc.invalidateQueries();
+      if (seller) {
+        toast.success(isNew ? 'Cadastro enviado para aprovação. Você já pode fazer orçamentos para este cliente.' : 'Correção enviada para aprovação.');
+        try {
+          sessionStorage.setItem('della:selected-client', JSON.stringify(c.id ?? id));
+        } catch {
+          /* ignore */
+        }
+        nav('/vendedor', { replace: true });
+        return;
+      }
       toast.success(isNew ? 'Cliente cadastrado.' : 'Cliente atualizado.');
-      void qc.invalidateQueries({ queryKey: ['clients'] });
-      void qc.invalidateQueries({ queryKey: ['client', id] });
       if (isNew) nav(`/admin/clientes/${c.id}`, { replace: true });
     },
     onError: (e) => {
@@ -142,16 +174,22 @@ export default function ClientForm() {
   return (
     <>
       <PageHeader
-        back="/admin/clientes"
-        title={isNew ? 'Novo cliente' : f.legalName || 'Cliente'}
-        subtitle={isNew ? 'Cadastre os dados recebidos do vendedor' : <span className="inline-flex items-center gap-2">Status: <ClientStatusBadge status={existing.data?.status} /></span>}
+        back={listPath}
+        title={isNew ? (seller ? 'Cadastrar cliente' : 'Novo cliente') : f.legalName || 'Cliente'}
+        subtitle={
+          isNew
+            ? seller
+              ? 'O cadastro vai para aprovação. Enquanto isso, você já pode fazer orçamentos para ele.'
+              : 'Cadastre os dados do cliente'
+            : <span className="inline-flex items-center gap-2">Status: <ClientStatusBadge status={existing.data?.status} /></span>
+        }
         actions={
           <>
             <Button variant="secondary" icon={<ClipboardPaste className="size-4" />} onClick={() => setImportOpen(true)}>
               Importar texto do WhatsApp
             </Button>
             <Button icon={<Save className="size-4" />} loading={save.isPending} onClick={() => save.mutate()}>
-              Salvar cliente
+              {seller ? 'Enviar para aprovação' : 'Salvar cliente'}
             </Button>
           </>
         }
@@ -160,7 +198,7 @@ export default function ClientForm() {
       {dup.data?.cnpjDuplicate && (
         <div className="mb-4">
           <Alert tone="red" title="CNPJ já cadastrado">
-            Este CNPJ pertence a <a className="underline" href={`/admin/clientes/${dup.data.cnpjDuplicate.id}`}>{dup.data.cnpjDuplicate.legalName}</a>. Não é permitido cadastrar o mesmo cliente duas vezes.
+            Este CNPJ pertence a {dup.data.cnpjDuplicate.id ? <a className="underline" href={`/admin/clientes/${dup.data.cnpjDuplicate.id}`}>{dup.data.cnpjDuplicate.legalName}</a> : dup.data.cnpjDuplicate.legalName}. Não é permitido cadastrar o mesmo cliente duas vezes.
           </Alert>
         </div>
       )}
@@ -246,33 +284,50 @@ export default function ClientForm() {
         </div>
 
         <div className="space-y-6">
+          {seller ? (
+            <Card>
+              <CardTitle>Aprovação</CardTitle>
+              {existing.data?.reviewNote && (
+                <div className="mb-3">
+                  <Alert tone="amber" title="Pedido de correção">{existing.data.reviewNote}</Alert>
+                </div>
+              )}
+              <p className="text-sm text-muted">
+                Ao enviar, o cadastro aparece em <strong>Pendência cadastral</strong> para o administrador e o gestor. Enquanto aguarda, este cliente fica disponível
+                <strong> só para orçamentos</strong>. Depois da aprovação, você poderá fazer pedidos e transformar os orçamentos em pedido.
+              </p>
+            </Card>
+          ) : (
           <Card>
             <CardTitle>Liberação comercial</CardTitle>
             <div className="space-y-4">
+              {(isAdmin || can('canReleaseClients')) && (
               <Field label="Status do cadastro" error={err('status')}>
                 <Select value={f.status} onChange={(e) => set('status', e.target.value)}>
                   {Object.entries(CLIENT_STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </Select>
               </Field>
+              )}
               <Field label="Vendedor responsável" error={err('salesRepId')}>
                 <Select value={f.salesRepId} onChange={(e) => set('salesRepId', e.target.value)}>
                   <option value="">— Nenhum —</option>
                   {reps.data?.map((r) => <option key={r.id} value={r.id}>{r.fullName}{!r.active ? ' (inativo)' : ''}</option>)}
                 </Select>
               </Field>
-              <Toggle checked={f.availableToAllReps} onChange={(v) => set('availableToAllReps', v)} label="Liberar para todos os vendedores" description="Qualquer representante ativo poderá atender este cliente." />
+              {isAdmin && <Toggle checked={f.availableToAllReps} onChange={(v) => set('availableToAllReps', v)} label="Liberar para todos os vendedores" description="Qualquer representante ativo poderá atender este cliente." />}
               {f.status === 'ACTIVE' ? (
                 <Alert tone="green" icon={<AlertTriangle className="size-4" />}>Cliente ativo: disponível para pedidos e orçamentos do vendedor autorizado.</Alert>
               ) : (
-                <Alert tone="amber">Enquanto não estiver “Ativo”, o vendedor não consegue selecionar este cliente.</Alert>
+                <Alert tone="amber">Enquanto não estiver “Ativo”, o vendedor só consegue fazer orçamentos (se o cadastro estiver em análise) e não faz pedidos.</Alert>
               )}
             </div>
           </Card>
+          )}
           <Card>
             <CardTitle>Observações comerciais</CardTitle>
             <Textarea rows={5} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Ex.: condições negociadas, horário de recebimento…" />
           </Card>
-          {!isNew && existing.data && (
+          {!isNew && !seller && existing.data?.stats && (
             <Card>
               <CardTitle icon={<History className="size-4" />}>Rastreabilidade</CardTitle>
               <KeyValue
@@ -284,9 +339,11 @@ export default function ClientForm() {
                   ['Último pedido', existing.data.stats.lastOrderDate ? formatDateBR(existing.data.stats.lastOrderDate) : 'Nenhum'],
                 ]}
               />
-              <a href={`/admin/auditoria?entity=client&entityId=${id}`} className="mt-3 inline-block text-sm text-navy-700 hover:underline">
-                Ver histórico de alterações
-              </a>
+              {isAdmin && (
+                <a href={`/admin/auditoria?entity=client&entityId=${id}`} className="mt-3 inline-block text-sm text-navy-700 hover:underline">
+                  Ver histórico de alterações
+                </a>
+              )}
             </Card>
           )}
         </div>

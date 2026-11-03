@@ -77,7 +77,7 @@ async function saveQuoteTx(tx: Tx, rep: SalesRep, act: Actor, input: SaveQuoteIn
     if (fromDbDate(existing.validUntil)! < todayStr) throw unprocessable('Orçamento fora da validade não pode ser editado.', 'QUOTE_EXPIRED');
   }
 
-  await assertClientUsable(tx, rep, input.clientId);
+  await assertClientUsable(tx, rep, input.clientId, 'quote');
   const term = await resolvePaymentTerm(tx, input.paymentTermId);
   const validUntil = input.validUntil ?? addDays(todayStr, settings.quoteValidityDays);
   if (validUntil < todayStr) throw unprocessable('A validade da proposta não pode estar no passado.', 'INVALID_VALIDITY');
@@ -203,7 +203,9 @@ export async function conversionPreview(rep: SalesRep, quoteId: string) {
   else if (!isOpen(q.status)) blockers.push(`Orçamento com status "${QUOTE_STATUS_LABELS[q.status]}" não pode ser convertido.`);
   if (fromDbDate(q.validUntil)! < todayStr && q.status !== 'CONVERTED') blockers.push('A validade do orçamento expirou.');
   if (q.discountApprovalStatus === 'PENDING') blockers.push('O desconto deste orçamento ainda aguarda aprovação.');
-  if (q.client.status !== 'ACTIVE') blockers.push('O cliente não está ativo.');
+  if (q.client.status === 'UNDER_REVIEW' || q.client.status === 'PENDING_REGISTRATION') {
+    blockers.push('O cadastro do cliente ainda aguarda aprovação do administrador. Depois da aprovação o orçamento poderá virar pedido.');
+  } else if (q.client.status !== 'ACTIVE') blockers.push('O cliente não está ativo.');
   const items = q.items.map((i) => {
     const active = i.product.active && !i.product.deletedAt && i.product.brand.active;
     if (!active) blockers.push(`O produto ${i.sku} – ${i.productName} está inativo. Edite o orçamento e remova-o.`);
