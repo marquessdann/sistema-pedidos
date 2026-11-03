@@ -30,7 +30,7 @@ async function main() {
     cnpj: '57534374000104',
     stateRegistration: '91100250-73',
     email: 'financeiro@dellastore.com.br',
-    phone: '41999846920',
+    phone: '41996790904',
     address: 'Rua Assis Figueiredo, 59 – Parolin – Curitiba/PR – CEP 80630-280',
   };
   await prisma.companySettings.upsert({ where: { id: 1 }, create: { id: 1, ...company }, update: {} });
@@ -126,7 +126,7 @@ async function seedTrainingClient() {
       stateRegistration: '91100250-73',
       commercialEmail: 'financeiro@dellastore.com.br',
       financeEmail: 'financeiro@dellastore.com.br',
-      commercialPhone: '41999846920',
+      commercialPhone: '41996790904',
       street: 'Rua Assis Figueiredo',
       number: '59',
       district: 'Parolin',
