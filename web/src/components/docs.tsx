@@ -107,7 +107,11 @@ export interface DocTotals {
 export function TotalsCard({ doc, internal, title = 'Resumo financeiro' }: { doc: DocTotals; internal?: boolean; title?: string }) {
   const rows: [ReactNode, string, string?][] = [['Subtotal bruto', formatBRL(doc.grossCents)]];
   if (doc.itemDiscountCents) rows.push(['Descontos por item', `− ${formatBRL(doc.itemDiscountCents)}`, 'text-red-600']);
-  if (doc.generalDiscountCents || doc.generalDiscountBps) rows.push([`Desconto geral (${formatBps(doc.generalDiscountBps)})`, `− ${formatBRL(doc.generalDiscountCents)}`, 'text-red-600']);
+  rows.push([`Desconto (${formatBps(doc.generalDiscountBps)})`, `− ${formatBRL(doc.generalDiscountCents)}`, doc.generalDiscountCents ? 'text-red-600' : undefined]);
+  if (doc.itemDiscountCents && doc.generalDiscountCents) {
+    const pct = doc.grossCents > 0 ? Math.round(((doc.itemDiscountCents + doc.generalDiscountCents) * 10000) / doc.grossCents) : 0;
+    rows.push([`Desconto total (${formatBps(pct)})`, `− ${formatBRL(doc.itemDiscountCents + doc.generalDiscountCents)}`, 'text-red-600']);
+  }
   for (const s of doc.calcSnapshot?.surcharges ?? []) rows.push([s.name, `+ ${formatBRL(s.amountCents)}`]);
   if (doc.freightCents) rows.push(['Frete', `+ ${formatBRL(doc.freightCents)}`]);
   return (

@@ -73,6 +73,11 @@ const GRAY = '#5B6575';
 const LIGHT = '#F3F5F8';
 const BORDER = '#D9DEE6';
 
+/** Percentual de desconto efetivo (itens + geral) sobre o subtotal bruto. */
+function discountPct(t: { grossCents: number; itemDiscountCents: number; generalDiscountCents: number }) {
+  return t.grossCents > 0 ? Math.round(((t.itemDiscountCents + t.generalDiscountCents) * 10000) / t.grossCents) : 0;
+}
+
 export function addressLine(a: { street?: string | null; number?: string | null; complement?: string | null; district?: string | null; city?: string | null; state?: string | null; cep?: string | null }) {
   const first = [a.street, a.number].filter(Boolean).join(', ');
   const parts = [first + (a.complement ? ` – ${a.complement}` : ''), a.district, [a.city, a.state].filter(Boolean).join('/'), a.cep ? `CEP ${formatCep(a.cep)}` : null];
@@ -207,6 +212,7 @@ function draw(doc: PDFKit.PDFDocument, d: PdfData) {
   const docLines: [string, string | null | undefined][] = [
     ['Data de emissão', formatDateBR(d.issueDate)],
     ['Situação', d.statusLabel],
+    ['Desconto concedido', `${formatBps(discountPct(d.totals))} (${formatBRL(d.totals.itemDiscountCents + d.totals.generalDiscountCents)})`],
     ...(isQuote ? ([['Validade da proposta', d.validUntil ? formatDateBR(d.validUntil) : null]] as [string, string | null][]) : []),
     ['Condição de pagamento', [d.paymentTerm, d.paymentDays ? `(${d.paymentDays} dias)` : null].filter(Boolean).join(' ') || null],
     ['Previsão de entrega', d.expectedDelivery ? formatDateBR(d.expectedDelivery) : null],
@@ -277,8 +283,12 @@ function draw(doc: PDFKit.PDFDocument, d: PdfData) {
   // ---------- Totais ----------
   const t = d.totals;
   const totalRows: [string, string, boolean?][] = [['Subtotal bruto', formatBRL(t.grossCents)]];
+  // o desconto aparece sempre no extrato (também quando é 0%), com percentual e valor
   if (t.itemDiscountCents) totalRows.push(['Descontos nos itens', `- ${formatBRL(t.itemDiscountCents)}`]);
-  if (t.generalDiscountCents) totalRows.push([`Desconto comercial (${formatBps(t.generalDiscountBps)})`, `- ${formatBRL(t.generalDiscountCents)}`]);
+  totalRows.push([`Desconto (${formatBps(t.generalDiscountBps)})`, `- ${formatBRL(t.generalDiscountCents)}`]);
+  if (t.itemDiscountCents && t.generalDiscountCents) {
+    totalRows.push([`Desconto total (${formatBps(discountPct(t))})`, `- ${formatBRL(t.itemDiscountCents + t.generalDiscountCents)}`]);
+  }
   for (const s of t.surcharges) totalRows.push([s.name, `+ ${formatBRL(s.amountCents)}`]);
   if (t.freightCents) totalRows.push(['Frete', `+ ${formatBRL(t.freightCents)}`]);
   const totalsH = totalRows.length * 15 + 32;
