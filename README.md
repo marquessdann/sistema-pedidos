@@ -113,7 +113,7 @@ navegador (Safari/Chrome), sem instalar nada. **Para publicar, siga [docs/DEPLOY
 │       ├── pages/seller/    # painel do representante (assistente de pedido em DocWizard.tsx)
 │       └── lib/             # cliente da API, autenticação, hooks
 ├── e2e/acceptance.cjs       # teste de aceite no navegador (Playwright)
-├── Dockerfile / docker-compose.yml
+├── deploy/docker/           # alternativa ao Vercel (Dockerfile e docker-compose)
 └── .env.example
 ```
 
@@ -284,7 +284,7 @@ Guarde cópias fora do provedor e teste a restauração periodicamente.
 
 ```bash
 # no .env, defina também POSTGRES_PASSWORD, ADMIN_PASSWORD e SEED_VICTOR_PASSWORD
-docker compose up -d --build
+docker compose -f deploy/docker/docker-compose.yml up -d --build
 ```
 
 Na inicialização, o container aplica as migrações, roda o seed (idempotente) e sobe a aplicação na porta 3333. Coloque um proxy HTTPS na frente e defina `COOKIE_SECURE=true`.
