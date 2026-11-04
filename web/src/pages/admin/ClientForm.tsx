@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, ClipboardPaste, History, MapPin, Save, Wand2 } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, ClipboardPaste, History, Loader2, MapPin, Save, Search, Wand2 } from 'lucide-react';
 import {
   CLIENT_STATUS_LABELS,
   UFS,
@@ -16,8 +16,9 @@ import {
   onlyDigits,
   parseClientText,
   type ParsedClient,
+  normalizeCnpj,
 } from '@della/shared';
-import { api, errorMessage, fieldErrors } from '../../lib/api';
+import { ApiError, api, errorMessage, fieldErrors } from '../../lib/api';
 import { useRole } from '../../lib/auth';
 import { useDebounced } from '../../lib/hooks';
 import { Alert, Button, Card, CardTitle, Field, Input, KeyValue, Loading, MaskedInput, Modal, PageHeader, Select, Textarea, Toggle } from '../../components/ui';
@@ -144,6 +145,48 @@ export default function ClientForm({ seller = false }: { seller?: boolean }) {
     },
   });
 
+  // consulta automática na Receita Federal ao digitar um CNPJ válido
+  const [receita, setReceita] = useState<null | { status: string | null; statusOk: boolean; source: string; mainActivity: string | null }>(null);
+  const [receitaState, setReceitaState] = useState<'idle' | 'loading' | 'notfound' | 'error'>('idle');
+  const lastLookup = useRef('');
+  const lookupCnpj = async (force = false) => {
+    const digits = normalizeCnpj(f.cnpj);
+    if (!isValidCnpj(digits) || (!force && lastLookup.current === digits)) return;
+    lastLookup.current = digits;
+    setReceitaState('loading');
+    try {
+      const d = await api<any>(`/cnpj/${digits}`);
+      setReceita({ status: d.status, statusOk: d.statusOk, source: d.source, mainActivity: d.mainActivity });
+      setReceitaState('idle');
+      // preenche somente o que ainda está em branco (não apaga o que já foi digitado)
+      setF((p) => {
+        const fill = <K extends keyof Form>(k: K, v: Form[K] | null | undefined) => (!p[k] && v ? v : p[k]);
+        return {
+          ...p,
+          legalName: fill('legalName', d.legalName),
+          tradeName: fill('tradeName', d.tradeName),
+          commercialPhone: fill('commercialPhone', d.phone ? formatPhone(d.phone) : null),
+          commercialEmail: fill('commercialEmail', d.email),
+          cep: fill('cep', d.cep ? formatCep(d.cep) : null),
+          state: fill('state', d.state),
+          city: fill('city', d.city),
+          district: fill('district', d.district),
+          street: fill('street', d.street),
+          number: fill('number', d.number),
+          complement: fill('complement', d.complement),
+        };
+      });
+      toast.success('Dados da Receita Federal preenchidos. A Inscrição Estadual precisa ser digitada.');
+    } catch (e) {
+      setReceita(null);
+      setReceitaState(e instanceof ApiError && e.status === 404 ? 'notfound' : 'error');
+    }
+  };
+  useEffect(() => {
+    if (isNew && isValidCnpj(dCnpj)) void lookupCnpj();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dCnpj, isNew]);
+
   const lookupCep = async () => {
     const cep = onlyDigits(f.cep);
     if (cep.length !== 8) return toast.error('Informe um CEP com 8 dígitos.');
@@ -222,7 +265,20 @@ export default function ClientForm({ seller = false }: { seller?: boolean }) {
                 <Input value={f.tradeName} onChange={(e) => set('tradeName', e.target.value)} />
               </Field>
               <Field label="CNPJ" required error={err('cnpj') ?? (cnpjInvalid ? 'CNPJ inválido. Confira os dígitos.' : undefined)} hint="Aceita o formato numérico e o novo alfanumérico.">
-                <MaskedInput value={f.cnpj} mask={formatCnpj} inputMode="text" onChange={(v) => set('cnpj', v)} placeholder="00.000.000/0000-00" invalid={cnpjInvalid || !!err('cnpj')} />
+                <div className="flex gap-2">
+                  <MaskedInput value={f.cnpj} mask={formatCnpj} inputMode="text" onChange={(v) => set('cnpj', v)} placeholder="00.000.000/0000-00" invalid={cnpjInvalid || !!err('cnpj')} />
+                  <Button variant="secondary" aria-label="Buscar dados na Receita Federal" title="Buscar dados na Receita Federal" disabled={!isValidCnpj(f.cnpj) || receitaState === 'loading'} onClick={() => void lookupCnpj(true)} icon={receitaState === 'loading' ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />} />
+                </div>
+                {receitaState === 'loading' && <p className="mt-1 text-xs text-muted">Consultando a Receita Federal…</p>}
+                {receitaState === 'notfound' && <p className="mt-1 text-xs text-amber-700">CNPJ não encontrado na Receita. Confira o número ou preencha manualmente.</p>}
+                {receitaState === 'error' && <p className="mt-1 text-xs text-amber-700">Consulta à Receita indisponível agora (sem internet?). Preencha manualmente.</p>}
+                {receita && receitaState === 'idle' && (
+                  receita.statusOk ? (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700"><BadgeCheck className="size-3.5" /> CNPJ ativo na Receita Federal{receita.mainActivity ? ` • ${receita.mainActivity}` : ''}</p>
+                  ) : (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-red-600"><AlertTriangle className="size-3.5" /> Situação na Receita: {receita.status ?? 'desconhecida'} — confira antes de cadastrar.</p>
+                  )
+                )}
               </Field>
               <Field label="Inscrição estadual" error={err('stateRegistration')} hint="Quando aplicável (ou “Isento”)">
                 <Input value={f.stateRegistration} onChange={(e) => set('stateRegistration', e.target.value)} />
