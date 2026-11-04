@@ -1,0 +1,12 @@
+{
+  "name": "Della Pedidos",
+  "short_name": "Della Pedidos",
+  "description": "Pedidos e orçamentos da Della Distribuidora",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0F2341",
+  "theme_color": "#0F2341",
+  "icons": [{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }]
+}

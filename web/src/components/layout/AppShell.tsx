@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   LogOut,
   Package,
+  RefreshCw,
   Route,
   ScrollText,
   Settings,
@@ -27,7 +28,9 @@ import {
 } from 'lucide-react';
 import { useAuth, useRole } from '../../lib/auth';
 import { api } from '../../lib/api';
-import { cx } from '../ui';
+import { cx, useConfirm } from '../ui';
+import { useOffline } from '../../lib/offline';
+import { OfflineBar } from '../OfflineBar';
 
 interface NavItem {
   to: string;
@@ -52,6 +55,9 @@ export function AppShell() {
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const { isManager, can } = useRole();
+  const isSeller = me?.user.role === 'SELLER';
+  const offline = useOffline();
+  const confirm = useConfirm();
   // painel de gestão (administrador total ou gestor)
   const isAdmin = me?.user.role === 'ADMIN' || isManager;
 
@@ -104,6 +110,7 @@ export function AppShell() {
         { to: '/vendedor/processo', label: 'Processo do pedido', short: 'Andamento', icon: <Route /> },
         { to: '/vendedor/orcamentos', label: 'Orçamentos', icon: <FileText /> },
         { to: '/vendedor/catalogo', label: 'Catálogo', icon: <Boxes /> },
+        { to: '/vendedor/sincronizar', label: 'Sincronizar (sem internet)', short: 'Sincronizar', icon: <RefreshCw />, badge: offline.pending },
       ];
 
   const sidebar = (
@@ -146,6 +153,18 @@ export function AppShell() {
         </NavLink>
         <button
           onClick={async () => {
+            if (isSeller && (offline.offline || offline.pending > 0)) {
+              const ok = await confirm({
+                title: 'Sair da conta?',
+                message: offline.offline
+                  ? 'Você está sem internet: depois de sair, só será possível entrar de novo com sinal. O que estiver aguardando envio continua guardado no aparelho.'
+                  : `Há ${offline.pending} item(ns) aguardando envio. Eles continuam guardados neste aparelho e serão enviados quando você entrar de novo e sincronizar.`,
+                tone: 'danger',
+                confirmLabel: 'Sair mesmo assim',
+                cancelLabel: 'Continuar no sistema',
+              });
+              if (!ok) return;
+            }
             await logout();
             nav('/login');
           }}
@@ -198,6 +217,7 @@ export function AppShell() {
           {me?.user.role === 'ADMIN' && <ShieldCheck className="hidden size-4 text-gold-500 sm:block" aria-label="Administrador" />}
         </div>
       </header>
+      {isSeller && <OfflineBar />}
       <main className={cx('mx-auto max-w-[1400px] px-4 py-5 lg:px-8 lg:py-8', fullscreenFlow ? 'pb-6' : 'pb-28 lg:pb-8')}>
         <Outlet />
       </main>

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { Client, SalesRep } from '@prisma/client';
 import { z } from 'zod';
 import { normalizeCnpj, QUOTE_SELLER_SETTABLE } from '@della/shared';
 import { prisma } from '../../db';
@@ -93,31 +94,84 @@ async function loadQuoteForSeller(req: FastifyRequest, id: string) {
   return sellerView(req, q as unknown as Record<string, unknown>);
 }
 
+async function sellerConfig(req: FastifyRequest) {
+  const settings = await getSettings();
+  const [paymentTerms, rules] = await Promise.all([
+    prisma.paymentTerm.findMany({ where: { active: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], select: { id: true, name: true, days: true } }),
+    loadRules(prisma),
+  ]);
+  return {
+    today: today(settings),
+    timezone: settings.timezone,
+    companyName: settings.companyName,
+    quoteValidityDays: settings.quoteValidityDays,
+    allowItemDiscount: settings.allowItemDiscount,
+    allowSellerFreight: settings.allowSellerFreight,
+    stockEnabled: settings.stockEnabled,
+    conversionPricePolicy: settings.conversionPricePolicy,
+    maxDiscountBps: req.rep!.maxDiscountBps,
+    paymentTerms,
+    // somente acréscimos cobrados do cliente (regras internas não são expostas)
+    surchargeRules: rules.filter((r) => r.kind === 'SURCHARGE'),
+  };
+}
+
+/** Dados do cliente que o vendedor pode ver (mesmo formato no modo sem internet). */
+function clientView(c: Client, rep: SalesRep) {
+  return {
+    id: c.id,
+    legalName: c.legalName,
+    tradeName: c.tradeName,
+    cnpj: c.cnpj,
+    stateRegistration: c.stateRegistration,
+    responsibleName: c.responsibleName,
+    commercialPhone: c.commercialPhone,
+    commercialEmail: c.commercialEmail,
+    financeEmail: rep.canViewFinanceContact ? c.financeEmail : undefined,
+    financePhone: rep.canViewFinanceContact ? c.financePhone : undefined,
+    address: { cep: c.cep, state: c.state, city: c.city, district: c.district, street: c.street, number: c.number, complement: c.complement },
+    notes: c.notes,
+    status: c.status,
+    // pendente de aprovação: pode orçar; pedido só depois da aprovação
+    selectable: c.status === 'ACTIVE' || (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
+    canOrder: c.status === 'ACTIVE',
+    pendingApproval: (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
+    reviewNote: c.reviewNote,
+    editable: c.salesRepId === rep.id && (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
+    raw: {
+      stateRegistration: c.stateRegistration,
+      financeEmail: c.salesRepId === rep.id ? c.financeEmail : undefined,
+      financePhone: c.salesRepId === rep.id ? c.financePhone : undefined,
+    },
+  };
+}
+
+/** Seleção explícita do catálogo: custo (só com permissão), tributo de referência e observações internas não são lidos. */
+function catalogSelect(canViewCost: boolean) {
+  return {
+    id: true,
+    sku: true,
+    name: true,
+    unit: true,
+    unitsPerBox: true,
+    description: true,
+    priceCents: true,
+    stockQty: true,
+    reservedQty: true,
+    brand: { select: { id: true, name: true } },
+    category: { select: { id: true, name: true } },
+    images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }], select: { fileName: true } },
+    ...(canViewCost ? { costCents: true } : {}),
+  };
+}
+
+const activeCatalogWhere = { deletedAt: null, active: true, brand: { active: true } };
+
 /** Rotas /api/seller/*: somente representantes autenticados; tudo é filtrado pelo vendedor da sessão. */
 export async function sellerRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireSeller);
 
-  app.get('/config', async (req) => {
-    const settings = await getSettings();
-    const [paymentTerms, rules] = await Promise.all([
-      prisma.paymentTerm.findMany({ where: { active: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], select: { id: true, name: true, days: true } }),
-      loadRules(prisma),
-    ]);
-    return {
-      today: today(settings),
-      timezone: settings.timezone,
-      companyName: settings.companyName,
-      quoteValidityDays: settings.quoteValidityDays,
-      allowItemDiscount: settings.allowItemDiscount,
-      allowSellerFreight: settings.allowSellerFreight,
-      stockEnabled: settings.stockEnabled,
-      conversionPricePolicy: settings.conversionPricePolicy,
-      maxDiscountBps: req.rep!.maxDiscountBps,
-      paymentTerms,
-      // somente acréscimos cobrados do cliente (regras internas não são expostas)
-      surchargeRules: rules.filter((r) => r.kind === 'SURCHARGE'),
-    };
-  });
+  app.get('/config', async (req) => sellerConfig(req));
 
   // ---------------- Clientes ----------------
   app.get('/clients', async (req) => {
@@ -164,30 +218,7 @@ export async function sellerRoutes(app: FastifyInstance) {
       prisma.quote.findMany({ where: scope, orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, number: true, status: true, quoteDate: true, validUntil: true, totalCents: true } }),
     ]);
     return {
-      id: c.id,
-      legalName: c.legalName,
-      tradeName: c.tradeName,
-      cnpj: c.cnpj,
-      stateRegistration: c.stateRegistration,
-      responsibleName: c.responsibleName,
-      commercialPhone: c.commercialPhone,
-      commercialEmail: c.commercialEmail,
-      financeEmail: rep.canViewFinanceContact ? c.financeEmail : undefined,
-      financePhone: rep.canViewFinanceContact ? c.financePhone : undefined,
-      address: { cep: c.cep, state: c.state, city: c.city, district: c.district, street: c.street, number: c.number, complement: c.complement },
-      notes: c.notes,
-      status: c.status,
-      // pendente de aprovação: pode orçar; pedido só depois da aprovação
-      selectable: c.status === 'ACTIVE' || (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
-      canOrder: c.status === 'ACTIVE',
-      pendingApproval: (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
-      reviewNote: c.reviewNote,
-      editable: c.salesRepId === rep.id && (CLIENT_PENDING_STATUSES as readonly string[]).includes(c.status),
-      raw: {
-        stateRegistration: c.stateRegistration,
-        financeEmail: c.salesRepId === rep.id ? c.financeEmail : undefined,
-        financePhone: c.salesRepId === rep.id ? c.financePhone : undefined,
-      },
+      ...clientView(c, rep),
       stats: {
         orders: stats._count,
         lastOrderDate: stats._max.orderDate?.toISOString().slice(0, 10) ?? null,
@@ -239,6 +270,39 @@ export async function sellerRoutes(app: FastifyInstance) {
     return { id, status: 'UNDER_REVIEW' };
   });
 
+  /**
+   * Pacote para o modo sem internet: tudo que o vendedor precisa para montar pedidos/orçamentos no aparelho.
+   * Mesmas regras de visibilidade das rotas normais (sem custo/margem, salvo permissão; só os clientes do vendedor).
+   */
+  app.get('/offline-snapshot', async (req) => {
+    const rep = req.rep!;
+    const [config, brands, categories, products, clients] = await Promise.all([
+      sellerConfig(req),
+      prisma.brand.findMany({ where: { active: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], select: { id: true, name: true } }),
+      prisma.category.findMany({ where: { active: true }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+      prisma.product.findMany({
+        where: activeCatalogWhere,
+        orderBy: [{ brand: { sortOrder: 'asc' } }, { brand: { name: 'asc' } }, { name: 'asc' }],
+        take: 3000,
+        select: catalogSelect(rep.canViewCost),
+      }),
+      prisma.client.findMany({ where: clientScopeForRep(rep), orderBy: { legalName: 'asc' }, take: 5000 }),
+    ]);
+    return {
+      generatedAt: new Date().toISOString(),
+      config,
+      brands,
+      categories,
+      products: products.map(({ stockQty, reservedQty, images, ...p }) => ({
+        ...p,
+        imageFileName: images[0]?.fileName ?? null,
+        images: images.map((i) => i.fileName),
+        availableQty: config.stockEnabled ? stockQty - reservedQty : null,
+      })),
+      clients: clients.map((c) => ({ ...clientView(c, rep), city: c.city, state: c.state })),
+    };
+  });
+
   // ---------------- Catálogo ----------------
   app.get('/brands', async () =>
     prisma.brand.findMany({ where: { active: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], select: { id: true, name: true } }),
@@ -258,9 +322,7 @@ export async function sellerRoutes(app: FastifyInstance) {
     const rep = req.rep!;
     const products = await prisma.product.findMany({
       where: {
-        deletedAt: null,
-        active: true,
-        brand: { active: true },
+        ...activeCatalogWhere,
         ...(q.brandId ? { brandId: q.brandId } : {}),
         ...(q.categoryId ? { categoryId: q.categoryId } : {}),
         ...(q.q
@@ -276,21 +338,7 @@ export async function sellerRoutes(app: FastifyInstance) {
       orderBy: [{ brand: { sortOrder: 'asc' } }, { brand: { name: 'asc' } }, { name: 'asc' }],
       take: 1000,
       // seleção explícita: custo, tributo de referência e observações internas não são lidos
-      select: {
-        id: true,
-        sku: true,
-        name: true,
-        unit: true,
-        unitsPerBox: true,
-        description: true,
-        priceCents: true,
-        stockQty: true,
-        reservedQty: true,
-        brand: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], select: { fileName: true } },
-        ...(rep.canViewCost ? { costCents: true } : {}),
-      },
+      select: catalogSelect(rep.canViewCost),
     });
     const brands = new Map<string, { id: string; name: string; products: unknown[] }>();
     for (const p of products) {

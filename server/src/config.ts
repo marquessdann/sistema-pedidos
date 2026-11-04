@@ -13,6 +13,8 @@ const EnvSchema = z.object({
   APP_URL: z.string().default('http://localhost:5173'),
   COOKIE_SECURE: bool,
   SESSION_TTL_HOURS: z.coerce.number().positive().default(12),
+  /** Vendedor trabalha em campo (modo sem internet): sessão longa, renovada a cada uso. */
+  SELLER_SESSION_TTL_DAYS: z.coerce.number().positive().default(30),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_SECURE: bool,

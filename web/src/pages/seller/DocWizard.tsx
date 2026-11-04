@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  CloudOff,
   BadgePercent,
   CheckCircle2,
   ChevronUp,
@@ -21,9 +22,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { addDays, calculate, checkDiscountLimit, formatBRL, formatBps, formatCnpj, formatDateBR, type CalcResult, type PricingRule } from '@della/shared';
+import { addDays, calculate, checkDiscountLimit, formatBRL, formatBps, formatCnpj, formatDateBR, formatDateTimeBR, type CalcResult, type PricingRule } from '@della/shared';
 import { ApiError, api, errorMessage, newKey } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { queueDoc, removeOutbox, workingOffline } from '../../lib/offline';
 import { clearSession, useDebounced, useSessionState } from '../../lib/hooks';
 import { Alert, Button, Card, CardTitle, EmptyState, Field, Input, Loading, Modal, MoneyInput, PercentInput, Select, Textarea, cx, useConfirm } from '../../components/ui';
 import { ProductThumb } from '../../components/common';
@@ -301,11 +303,35 @@ export default function DocWizard({ mode }: { mode: Mode }) {
     }
   };
 
+  /** Sem internet: guarda no aparelho (mesma chave de idempotência) e envia ao sincronizar. */
+  const saveOffline = async (path: string, method: 'POST' | 'PUT', body: Record<string, unknown>, action: string) => {
+    await queueDoc({
+      id: s.key,
+      kind: isQuote ? 'quote' : 'order',
+      method,
+      path,
+      body,
+      action,
+      label: c?.tradeName ?? c?.legalName ?? 'Cliente',
+      totalCents: calc.result?.totalCents ?? 0,
+      wizard: { mode, state: s },
+    });
+    const what = isQuote ? 'Orçamento salvo' : action === 'DRAFT' ? 'Rascunho salvo' : 'Pedido salvo';
+    toast.success(`${what} no aparelho (sem internet). Ele será enviado quando você sincronizar.`, { duration: 6000 });
+    clearSession(storeKey);
+    nav('/vendedor/sincronizar', { replace: true });
+  };
+  const offlineFailure = (e: unknown) => e instanceof ApiError && e.status === 0;
+
   const saveOrder = async (action: 'DRAFT' | 'CONFIRM' | 'REQUEST_APPROVAL', thenPdf = false): Promise<void> => {
     setBusy(action + (thenPdf ? '-pdf' : ''));
+    const body = payload({ action });
+    const path = s.savedId ? `/seller/orders/${s.savedId}` : '/seller/orders';
+    const method = s.savedId ? 'PUT' : 'POST';
     try {
-      const body = payload({ action });
-      const res = s.savedId ? await api(`/seller/orders/${s.savedId}`, { method: 'PUT', body }) : await api('/seller/orders', { body });
+      if (workingOffline()) return await saveOffline(path, method, body, action);
+      const res = await api(path, { method, body });
+      void removeOutbox(s.key);
       const order = res.order;
       update({ savedId: order.id });
       if (res.duplicate) toast.info('Este pedido já havia sido registrado — nenhum pedido duplicado foi criado.');
@@ -320,6 +346,7 @@ export default function DocWizard({ mode }: { mode: Mode }) {
       toast.success(action === 'CONFIRM' ? `Pedido ${order.number} confirmado!` : `Pedido ${order.number} enviado para aprovação do administrador.`);
       finish(`/vendedor/pedidos/${order.id}?novo=1`);
     } catch (e) {
+      if (offlineFailure(e)) return await saveOffline(path, method, body, action).catch((err) => handleError(err, () => void saveOrder(action, thenPdf)));
       handleError(e, () => void saveOrder(action, thenPdf));
     } finally {
       setBusy(null);
@@ -328,15 +355,21 @@ export default function DocWizard({ mode }: { mode: Mode }) {
 
   const saveQuote = async (requestApproval: boolean, thenPdf = false): Promise<void> => {
     setBusy(thenPdf ? 'QUOTE-pdf' : 'QUOTE');
+    const body = payload({ validUntil: s.validUntil || null, requestApproval });
+    const path = s.savedId ? `/seller/quotes/${s.savedId}` : '/seller/quotes';
+    const method = s.savedId ? 'PUT' : 'POST';
+    const action = requestApproval && overLimit ? 'REQUEST_APPROVAL' : 'SAVE';
     try {
-      const body = payload({ validUntil: s.validUntil || null, requestApproval });
-      const res = s.savedId ? await api(`/seller/quotes/${s.savedId}`, { method: 'PUT', body }) : await api('/seller/quotes', { body });
+      if (workingOffline()) return await saveOffline(path, method, body, action);
+      const res = await api(path, { method, body });
+      void removeOutbox(s.key);
       const quote = res.quote;
       update({ savedId: quote.id });
       toast.success(requestApproval && overLimit ? `Orçamento ${quote.number} salvo e enviado para aprovação do desconto.` : `Orçamento ${quote.number} salvo.`);
       if (thenPdf) await generatePdf('quotes', quote.id);
       finish(`/vendedor/orcamentos/${quote.id}?novo=1`);
     } catch (e) {
+      if (offlineFailure(e)) return await saveOffline(path, method, body, action).catch((err) => handleError(err, () => void saveQuote(requestApproval, thenPdf)));
       handleError(e, () => void saveQuote(requestApproval, thenPdf));
     } finally {
       setBusy(null);
@@ -844,7 +877,7 @@ function StepConfirm({ s, cfg, calc, client, sellerName, isQuote, overLimit, rea
   const preview = useQuery({
     queryKey: ['preview', s.items, s.generalDiscountBps, s.freightCents],
     queryFn: () =>
-      api<{ calc: CalcResult }>('/seller/pricing/preview', {
+      api<{ calc: CalcResult; offline?: boolean; pricesFrom?: string }>('/seller/pricing/preview', {
         body: { items: s.items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountBps: i.discountBps, saleUnit: i.saleUnit })), generalDiscountBps: s.generalDiscountBps, freightCents: s.freightCents },
       }),
     retry: false,
@@ -888,7 +921,12 @@ function StepConfirm({ s, cfg, calc, client, sellerName, isQuote, overLimit, rea
         </Card>
         <div className="space-y-3">
           <SummaryCard calc={shown ?? null} />
-          {server && <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="size-3.5" /> Valores validados pelo servidor.</p>}
+          {server && !preview.data?.offline && <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="size-3.5" /> Valores validados pelo servidor.</p>}
+          {preview.data?.offline && (
+            <p className="flex items-start gap-1 text-xs text-amber-800">
+              <CloudOff className="mt-px size-3.5 shrink-0" /> Sem internet: valores calculados com os preços baixados em {formatDateTimeBR(preview.data.pricesFrom)}. O sistema confere de novo ao sincronizar.
+            </p>
+          )}
         </div>
       </div>
       <Card>{children}</Card>

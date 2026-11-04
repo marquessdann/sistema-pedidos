@@ -11,11 +11,14 @@ import { ApiError } from './lib/api';
 
 const queryClient = new QueryClient({
   defaultOptions: {
+    // "always": sem internet as consultas ainda rodam (o vendedor usa os dados guardados no aparelho)
     queries: {
+      networkMode: 'always',
       staleTime: 15_000,
       refetchOnWindowFocus: true,
       retry: (count, err) => !(err instanceof ApiError && err.status >= 400 && err.status < 500) && count < 2,
     },
+    mutations: { networkMode: 'always' },
   },
 });
 
@@ -34,3 +37,10 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
+
+// abre o sistema mesmo sem internet (telas guardadas no aparelho pelo service worker)
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  });
+}

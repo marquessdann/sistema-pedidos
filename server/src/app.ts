@@ -66,8 +66,8 @@ export async function buildApp(deps: AppDeps = {}) {
   app.decorateRequest('manager', null);
   app.decorateRequest('sessionId', null);
   app.decorateRequest('csrfToken', null);
-  app.addHook('onRequest', async (req) => {
-    if (req.url.startsWith('/api/')) await loadSession(req);
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.url.startsWith('/api/')) await loadSession(req, reply);
   });
   app.addHook('onSend', async (req, reply) => {
     if (req.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');

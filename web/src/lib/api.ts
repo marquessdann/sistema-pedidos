@@ -1,3 +1,5 @@
+import { loadSnapshot, offlineCapable, resolveOffline, workingOffline } from './offline';
+
 let csrfToken = '';
 export function setCsrf(token: string | null | undefined) {
   csrfToken = token ?? '';
@@ -43,11 +45,22 @@ export function qs(query?: Query) {
   return s ? `?${s}` : '';
 }
 
-export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; query?: Query; form?: FormData } = {}): Promise<T> {
+export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; query?: Query; form?: FormData; timeoutMs?: number } = {}): Promise<T> {
   const method = opts.method ?? (opts.body !== undefined || opts.form ? 'POST' : 'GET');
   const headers: Record<string, string> = {};
   if (method !== 'GET') headers['x-csrf-token'] = csrfToken;
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
+
+  // modo sem internet (vendedor): telas de catálogo/clientes/cálculo usam os dados baixados no aparelho
+  const canOffline = offlineCapable(method, path) && !!(await loadSnapshot());
+  if (canOffline && workingOffline()) {
+    const local = await resolveOffline(method, path, opts.query, opts.body);
+    if (local !== undefined) return local as T;
+  }
+  // sinal fraco costuma "travar" a conexão: com dados no aparelho, não espera indefinidamente
+  const timeoutMs = opts.timeoutMs ?? (canOffline ? 8000 : path.startsWith('/seller/') && method !== 'GET' ? 25000 : 0);
+  const ctrl = timeoutMs && typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   let res: Response;
   try {
     res = await fetch(`/api${scopedPath(path)}${qs(opts.query)}`, {
@@ -55,9 +68,16 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
       headers,
       credentials: 'same-origin',
       body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
+      signal: ctrl?.signal,
     });
   } catch {
+    if (canOffline) {
+      const local = await resolveOffline(method, path, opts.query, opts.body);
+      if (local !== undefined) return local as T;
+    }
     throw new ApiError(0, 'Sem conexão com o servidor. Verifique sua internet e tente novamente.', 'NETWORK');
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
   const data = isJson ? await res.json().catch(() => null) : null;

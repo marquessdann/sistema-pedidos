@@ -19,6 +19,7 @@ import {
   normalizeCnpj,
 } from '@della/shared';
 import { ApiError, api, errorMessage, fieldErrors } from '../../lib/api';
+import { queueClient, workingOffline } from '../../lib/offline';
 import { useRole } from '../../lib/auth';
 import { useDebounced } from '../../lib/hooks';
 import { Alert, Button, Card, CardTitle, Field, Input, KeyValue, Loading, MaskedInput, Modal, PageHeader, Select, Textarea, Toggle } from '../../components/ui';
@@ -122,12 +123,24 @@ export default function ClientForm({ seller = false }: { seller?: boolean }) {
         delete body.salesRepId;
         delete body.availableToAllReps;
       }
+      if (seller && isNew) {
+        // vendedor sem internet: o cadastro fica guardado no aparelho e já pode receber orçamento
+        if (workingOffline()) return queueClient(body);
+        return api(base, { body }).catch((e) => (e instanceof ApiError && e.status === 0 ? queueClient(body) : Promise.reject(e)));
+      }
       return isNew ? api(base, { body }) : api(`${base}/${id}`, { method: 'PUT', body });
     },
     onSuccess: (c: any) => {
       void qc.invalidateQueries();
       if (seller) {
-        toast.success(isNew ? 'Cadastro enviado para aprovação. Você já pode fazer orçamentos para este cliente.' : 'Correção enviada para aprovação.');
+        toast.success(
+          c?.offline
+            ? 'Cliente guardado no aparelho (sem internet). Já dá para fazer orçamento; o cadastro vai para aprovação quando você sincronizar.'
+            : isNew
+              ? 'Cadastro enviado para aprovação. Você já pode fazer orçamentos para este cliente.'
+              : 'Correção enviada para aprovação.',
+          c?.offline ? { duration: 7000 } : undefined,
+        );
         try {
           sessionStorage.setItem('della:selected-client', JSON.stringify(c.id ?? id));
         } catch {
@@ -152,6 +165,7 @@ export default function ClientForm({ seller = false }: { seller?: boolean }) {
   const lookupCnpj = async (force = false) => {
     const digits = normalizeCnpj(f.cnpj);
     if (!isValidCnpj(digits) || (!force && lastLookup.current === digits)) return;
+    if (!force && workingOffline()) return;
     lastLookup.current = digits;
     setReceitaState('loading');
     try {

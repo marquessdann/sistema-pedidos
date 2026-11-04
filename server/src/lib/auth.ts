@@ -45,10 +45,26 @@ function sha256(v: string) {
   return crypto.createHash('sha256').update(v).digest('hex');
 }
 
+/** Validade da sessão: vendedor fica conectado por mais tempo (trabalha sem sinal e sincroniza depois). */
+export function sessionTtlMs(role: Role) {
+  return role === 'SELLER' ? env.SELLER_SESSION_TTL_DAYS * 24 * 3600_000 : env.SESSION_TTL_HOURS * 3600_000;
+}
+
+function setSessionCookie(reply: FastifyReply, token: string, expiresAt: Date) {
+  reply.setCookie(SESSION_COOKIE, token, {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: env.COOKIE_SECURE || isProd,
+    expires: expiresAt,
+  });
+}
+
 export async function createSession(req: FastifyRequest, reply: FastifyReply, userId: string) {
   const token = crypto.randomBytes(32).toString('base64url');
   const csrfToken = crypto.randomBytes(24).toString('base64url');
-  const expiresAt = new Date(Date.now() + env.SESSION_TTL_HOURS * 3600_000);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true } });
+  const expiresAt = new Date(Date.now() + sessionTtlMs(user.role));
   await prisma.session.create({
     data: {
       tokenHash: sha256(token),
@@ -59,13 +75,7 @@ export async function createSession(req: FastifyRequest, reply: FastifyReply, us
       userAgent: (req.headers['user-agent'] ?? '').slice(0, 300),
     },
   });
-  reply.setCookie(SESSION_COOKIE, token, {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: env.COOKIE_SECURE || isProd,
-    expires: expiresAt,
-  });
+  setSessionCookie(reply, token, expiresAt);
   return { csrfToken };
 }
 
@@ -81,7 +91,7 @@ export async function destroyUserSessions(userId: string, exceptSessionId?: stri
 }
 
 /** Hook global: carrega a sessão (se houver) e valida CSRF em requisições que alteram dados. */
-export async function loadSession(req: FastifyRequest) {
+export async function loadSession(req: FastifyRequest, reply?: FastifyReply) {
   req.user = null;
   req.rep = null;
   req.manager = null;
@@ -120,9 +130,15 @@ export async function loadSession(req: FastifyRequest) {
   req.rep = u.salesRep;
   req.sessionId = session.id;
   req.csrfToken = session.csrfToken;
-  // renova o último acesso no máximo a cada 5 minutos
+  // renova o último acesso no máximo a cada 5 minutos; sessão de vendedor é deslizante (renova a validade a cada uso)
   if (Date.now() - session.lastSeenAt.getTime() > 5 * 60_000) {
-    await prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
+    const sliding = u.role === 'SELLER' ? new Date(Date.now() + sessionTtlMs(u.role)) : undefined;
+    await prisma.session
+      .update({ where: { id: session.id }, data: { lastSeenAt: new Date(), ...(sliding ? { expiresAt: sliding } : {}) } })
+      .then(() => {
+        if (sliding && reply) setSessionCookie(reply, token, sliding);
+      })
+      .catch(() => undefined);
   }
 }
 

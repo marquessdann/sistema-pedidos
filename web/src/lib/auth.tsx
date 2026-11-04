@@ -1,5 +1,25 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, setApiScope, setCsrf } from './api';
+import { api, ApiError, setApiScope, setCsrf } from './api';
+import { setOfflineUser } from './offline';
+
+/** Vendedor: guarda o usuário no aparelho para abrir o sistema sem internet. */
+const ME_KEY = 'della:me';
+function readCachedMe(): Me | null {
+  try {
+    const raw = localStorage.getItem(ME_KEY);
+    return raw ? (JSON.parse(raw) as Me) : null;
+  } catch {
+    return null;
+  }
+}
+function writeCachedMe(m: Me | null) {
+  try {
+    if (m && m.user.role === 'SELLER' && !m.user.mustChangePassword) localStorage.setItem(ME_KEY, JSON.stringify(m));
+    else localStorage.removeItem(ME_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export interface Me {
   user: { id: string; username: string; name: string; role: 'ADMIN' | 'MANAGER' | 'SELLER'; mustChangePassword: boolean };
@@ -47,14 +67,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setMe = useCallback((m: Me | null) => {
     setCsrf(m?.csrfToken);
     setApiScope(m?.user.role === 'MANAGER' ? 'manager' : 'admin');
+    setOfflineUser(m?.user.role === 'SELLER' ? m.user.id : null);
+    writeCachedMe(m);
     setMeState(m);
   }, []);
 
   const refresh = useCallback(async () => {
+    const cached = readCachedMe();
     try {
-      setMe(await api<Me>('/auth/me'));
-    } catch {
-      setMe(null);
+      setMe(await api<Me>('/auth/me', cached ? { timeoutMs: 8000 } : {}));
+    } catch (e) {
+      // sem internet: o vendedor continua trabalhando com os dados guardados no aparelho
+      if (cached && e instanceof ApiError && e.status === 0) {
+        setCsrf(cached.csrfToken);
+        setApiScope('admin');
+        setOfflineUser(cached.user.id);
+        setMeState(cached);
+      } else setMe(null);
     } finally {
       setLoading(false);
     }

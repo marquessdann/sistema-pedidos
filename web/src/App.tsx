@@ -34,6 +34,7 @@ const OrderProcess = lazy(() => import('./pages/seller/OrderProcess'));
 const SellerQuotes = lazy(() => import('./pages/seller/Quotes'));
 const SellerQuoteView = lazy(() => import('./pages/seller/QuoteView'));
 const Catalog = lazy(() => import('./pages/seller/Catalog'));
+const SyncPage = lazy(() => import('./pages/seller/Sync'));
 
 const homeOf = (role: string) => (role === 'SELLER' ? '/vendedor' : '/admin');
 
@@ -134,6 +135,7 @@ export function App() {
           <Route path="pedidos/:id/editar" element={<DocWizard mode="order" />} />
           <Route path="novo-orcamento" element={<DocWizard mode="quote" />} />
           <Route path="orcamentos/:id/editar" element={<DocWizard mode="quote" />} />
+          <Route path="sincronizar" element={<SyncPage />} />
           <Route path="pedidos" element={<SellerOrders />} />
           <Route path="pedidos/:id" element={<SellerOrderView />} />
           <Route path="processo" element={<OrderProcess />} />
