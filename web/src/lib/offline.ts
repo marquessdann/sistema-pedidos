@@ -8,7 +8,7 @@
  *   Cada envio usa a mesma chave de idempotência: reenviar nunca duplica pedido.
  */
 import { useEffect, useState } from 'react';
-import { calculate, checkDiscountLimit, normalizeCnpj, todayInTz, type CalcResult, type PricingRule } from '@della/shared';
+import { calculate, checkDiscountLimit, formatCep, formatCnpj, formatPhone, isValidCnpj, normalizeCnpj, todayInTz, type CalcResult, type PricingRule } from '@della/shared';
 import { api, ApiError, newKey } from './api';
 
 // ------------------------------------------------------------------ tipos
@@ -63,6 +63,8 @@ export interface OutboxEntry {
   /** valor mudou com os preços atuais: o vendedor precisa confirmar */
   priceDiff?: { before: number; after: number };
   acceptedTotalCents?: number;
+  /** cliente cadastrado sem internet: completar com os dados da Receita ao sincronizar */
+  autoFill?: boolean;
   /** estado da tela de montagem, para abrir e corrigir */
   wizard?: { mode: 'order' | 'quote'; state: any };
 }
@@ -328,15 +330,17 @@ export async function queueDoc(e: Omit<OutboxEntry, 'createdAt' | 'status'>) {
 export async function queueClient(body: any): Promise<{ id: string; offline: true }> {
   const snap = await loadSnapshot();
   const cnpj = normalizeCnpj(String(body.cnpj ?? ''));
+  if (!isValidCnpj(cnpj)) throw new ApiError(422, 'Informe um CNPJ válido.', 'VALIDATION', undefined, [{ path: 'cnpj', message: 'CNPJ inválido. Confira os dígitos.' }]);
   if (snap?.clients.some((c) => c.cnpj === cnpj)) {
     throw new ApiError(409, 'Este CNPJ já está na sua lista de clientes.', 'DUPLICATE_CNPJ');
   }
   const id = newKey();
-  await putOutbox({ id, kind: 'client', method: 'POST', path: '/seller/clients', body, label: body.tradeName || body.legalName, createdAt: new Date().toISOString(), status: 'pending' });
+  const label = body.tradeName || body.legalName || `CNPJ ${formatCnpj(cnpj)}`;
+  await putOutbox({ id, kind: 'client', method: 'POST', path: '/seller/clients', body, label, autoFill: true, createdAt: new Date().toISOString(), status: 'pending' });
   if (snap) {
     snap.clients.push({
       id,
-      legalName: body.legalName,
+      legalName: body.legalName || `CNPJ ${formatCnpj(cnpj)} (dados da Receita ao sincronizar)`,
       tradeName: body.tradeName || null,
       cnpj,
       stateRegistration: body.stateRegistration || null,
@@ -422,6 +426,38 @@ export interface SyncResult {
   offline: boolean;
 }
 
+/**
+ * Completa o cadastro feito sem internet com os dados da Receita (só os campos em branco).
+ * Retorna null se não houver razão social e a consulta estiver indisponível.
+ */
+async function fillFromReceita(body: any): Promise<any | null> {
+  const digits = normalizeCnpj(String(body.cnpj ?? ''));
+  try {
+    const d = await api<any>(`/cnpj/${digits}`);
+    const fill = (k: string, v: string | null | undefined) => (body[k] ? body[k] : v || body[k]);
+    return {
+      ...body,
+      legalName: fill('legalName', d.legalName),
+      tradeName: fill('tradeName', d.tradeName),
+      commercialPhone: fill('commercialPhone', d.phone ? formatPhone(d.phone) : null),
+      commercialEmail: fill('commercialEmail', d.email),
+      cep: fill('cep', d.cep ? formatCep(d.cep) : null),
+      state: fill('state', d.state),
+      city: fill('city', d.city),
+      district: fill('district', d.district),
+      street: fill('street', d.street),
+      number: fill('number', d.number),
+      complement: fill('complement', d.complement),
+    };
+  } catch (err) {
+    if (isNetwork(err) || isAuth(err)) throw err;
+    if (err instanceof ApiError && err.status === 404 && !body.legalName) {
+      throw new ApiError(422, 'CNPJ não encontrado na Receita Federal. Exclua e cadastre de novo conferindo o número.', 'CNPJ_NOT_FOUND');
+    }
+    return body.legalName ? body : null;
+  }
+}
+
 const isNetwork = (e: unknown) => e instanceof ApiError && e.status === 0;
 const isAuth = (e: unknown) => e instanceof ApiError && (e.status === 401 || e.status === 403);
 
@@ -440,7 +476,13 @@ export async function syncNow(): Promise<SyncResult> {
 
     for (const e of list.filter((x) => x.kind === 'client' && x.status !== 'error')) {
       try {
-        const res = await api<{ id: string }>(e.path, { method: e.method, body: e.body });
+        const body = e.autoFill ? await fillFromReceita(e.body) : e.body;
+        if (!body) {
+          // consulta da Receita fora do ar e sem razão social: tenta de novo na próxima sincronização
+          await patchOutbox(e.id, { error: 'Aguardando a consulta à Receita Federal (tenta de novo na próxima sincronização).' });
+          continue;
+        }
+        const res = await api<{ id: string }>(e.path, { method: e.method, body });
         idMap.set(e.id, res.id);
         await removeOutbox(e.id);
         await addSent({ kind: 'client', id: res.id, label: e.label, at: new Date().toISOString() });
@@ -462,10 +504,12 @@ export async function syncNow(): Promise<SyncResult> {
       });
       await saveOutbox(list);
     }
-    const pendingClients = new Set(list.filter((e) => e.kind === 'client').map((e) => e.id));
+    const clientEntries = new Map(list.filter((e) => e.kind === 'client').map((e) => [e.id, e]));
 
     for (const e of list.filter((x) => x.kind !== 'client' && x.status === 'pending')) {
-      if (pendingClients.has(e.body?.clientId)) {
+      const ce = clientEntries.get(e.body?.clientId);
+      if (ce && ce.status !== 'error') continue; // cliente ainda na fila: envia junto na próxima sincronização
+      if (ce) {
         await patchOutbox(e.id, { status: 'error', error: 'O cadastro do cliente ainda não foi aceito pelo servidor. Resolva o cliente primeiro.' });
         result.errors += 1;
         continue;

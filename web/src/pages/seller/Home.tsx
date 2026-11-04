@@ -152,7 +152,7 @@ function ClientPanel({ id, onClear }: { id: string; onClear: () => void }) {
               <div className="mt-2"><ClientStatusBadge status={c.status} /></div>
             </div>
           </div>
-          <Button variant="secondary" icon={<X className="size-4" />} onClick={onClear}>Trocar cliente</Button>
+          <Button variant="danger" icon={<X className="size-4" />} onClick={onClear}>Trocar cliente</Button>
         </div>
       </Card>
 

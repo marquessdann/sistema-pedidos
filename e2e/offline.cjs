@@ -86,7 +86,7 @@ const fail = (m) => { throw new Error(m); };
   step('Cadastra cliente novo sem internet e faz orçamento para ele');
   const newName = `Cliente Sem Sinal ${RUN} Ltda`;
   await v.goto(`${BASE}/vendedor/clientes/novo`);
-  await v.getByLabel(/Razão social/).fill(newName);
+  await v.getByRole('textbox', { name: 'Razão social', exact: true }).fill(newName);
   await v.getByLabel(/^CNPJ/).fill(cnpj('66' + RUN + '1'));
   await v.getByRole('button', { name: /Enviar para aprovação/ }).click();
   await v.getByText('Cliente selecionado').waitFor();

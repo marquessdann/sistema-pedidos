@@ -285,7 +285,13 @@ export default function ClientForm({ seller = false }: { seller?: boolean }) {
                 </div>
                 {receitaState === 'loading' && <p className="mt-1 text-xs text-muted">Consultando a Receita Federal…</p>}
                 {receitaState === 'notfound' && <p className="mt-1 text-xs text-amber-700">CNPJ não encontrado na Receita. Confira o número ou preencha manualmente.</p>}
-                {receitaState === 'error' && <p className="mt-1 text-xs text-amber-700">Consulta à Receita indisponível agora (sem internet?). Preencha manualmente.</p>}
+                {seller && isNew && (receitaState === 'error' || workingOffline()) ? (
+                  <p className="mt-1 text-xs text-amber-800">
+                    <strong>Sem internet:</strong> pode salvar só com o CNPJ. Razão social, endereço e contato são preenchidos pela Receita automaticamente quando você sincronizar.
+                  </p>
+                ) : (
+                  receitaState === 'error' && <p className="mt-1 text-xs text-amber-700">Consulta à Receita indisponível agora (sem internet?). Preencha manualmente.</p>
+                )}
                 {receita && receitaState === 'idle' && (
                   receita.statusOk ? (
                     <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700"><BadgeCheck className="size-3.5" /> CNPJ ativo na Receita Federal{receita.mainActivity ? ` • ${receita.mainActivity}` : ''}</p>
