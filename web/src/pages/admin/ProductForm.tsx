@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { ImagePlus, Lock, Save, Star, Trash2 } from 'lucide-react';
 import { formatBRL, formatBps, formatDateTimeBR, mulBps } from '@della/shared';
 import { api, errorMessage, fieldErrors, fileUrl } from '../../lib/api';
-import { shrinkImage } from '../../lib/image';
+import { shrinkProductImage } from '../../lib/image';
 import { useConfirm } from '../../components/ui';
 import { Alert, Badge, Button, Card, CardTitle, Field, Input, Loading, MoneyInput, PageHeader, PercentInput, Select, Textarea, Toggle, cx } from '../../components/ui';
 
@@ -81,7 +81,10 @@ export default function ProductForm() {
     mutationFn: (files: FileList) => {
       const fd = new FormData();
       return (async () => {
-        for (const file of Array.from(files)) fd.append('images', await shrinkImage(file), file.name.replace(/\.\w+$/, '.jpg'));
+        for (const file of Array.from(files)) {
+          const { blob, ext } = await shrinkProductImage(file);
+          fd.append('images', blob, file.name.replace(/\.\w+$/, `.${ext}`));
+        }
         return api(`/admin/products/${id}/images`, { form: fd });
       })();
     },
