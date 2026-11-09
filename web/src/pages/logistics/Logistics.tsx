@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Check, FileDown, LogOut, MapPin, MessageCircle, Phone, RefreshCw, Truck, User } from 'lucide-react';
-import { ORDER_STATUS_LABELS, formatDateBR, formatPhone, type OrderStatus } from '@della/shared';
+import { ArrowLeft, CalendarClock, Check, FileDown, LogOut, MapPin, MessageCircle, Phone, RefreshCw, Truck, User } from 'lucide-react';
+import { ORDER_STATUS_LABELS, formatDateBR, formatPhone, todayInTz, type OrderStatus } from '@della/shared';
 import { api, apiHref } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { Brand } from '../../components/layout/AppShell';
@@ -59,44 +59,97 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Prazo de entrega em destaque: vermelho; "ATRASADO" se já passou; "HOJE" no dia. */
+function DeliveryDeadline({ date, big }: { date: string | null; big?: boolean }) {
+  if (!date) return null;
+  const today = todayInTz();
+  const late = date < today;
+  const isToday = date === today;
+  const [, m, d] = date.split('-');
+  return (
+    <span className={cx('inline-flex items-center gap-1.5 rounded-lg bg-red-600 font-bold uppercase tracking-wide text-white', big ? 'px-3 py-2 text-base' : 'px-2.5 py-1 text-xs')}>
+      <CalendarClock className={big ? 'size-5' : 'size-4'} />
+      {late ? `ATRASADO • entregar até ${d}/${m}` : isToday ? `ENTREGAR HOJE (${d}/${m})` : `ENTREGAR ATÉ DIA ${d}/${m}`}
+    </span>
+  );
+}
+
 const unitText = (i: LItem) => (i.saleUnit === 'CX' ? `caixa${i.quantity > 1 ? 's' : ''} (${i.unitsPerSaleUnit} un cada)` : i.unit);
 
 // ================================================================= Lista
+type Tab = 'new' | 'received' | 'picking' | 'separated' | 'route' | 'done';
+const TABS: { key: Tab; label: string; empty: string }[] = [
+  { key: 'new', label: 'Novos', empty: 'Nenhum pedido novo chegou.' },
+  { key: 'received', label: 'Recebidos', empty: 'Nenhum pedido recebido aguardando separação.' },
+  { key: 'picking', label: 'Em separação', empty: 'Nenhum pedido em separação.' },
+  { key: 'separated', label: 'Separados', empty: 'Nenhum pedido separado aguardando entrega.' },
+  { key: 'route', label: 'Em entrega', empty: 'Nenhum pedido em rota de entrega.' },
+  { key: 'done', label: 'Entregues', empty: 'Nenhum pedido entregue nos últimos 45 dias.' },
+];
+
 export function LogisticsList() {
-  const [tab, setTab] = useState<'todo' | 'route' | 'done'>('todo');
+  const [tab, setTabState] = useState<Tab>(() => {
+    try {
+      return (sessionStorage.getItem('della:logistica:aba') as Tab) || 'new';
+    } catch {
+      return 'new';
+    }
+  });
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    try {
+      sessionStorage.setItem('della:logistica:aba', t);
+    } catch {
+      /* ignore */
+    }
+  };
   const q = useQuery({
     queryKey: ['logistics', tab],
-    queryFn: () => api<{ items: LOrder[]; counts: { todo: number; route: number; newOnes: number } }>('/logistics/orders', { query: { tab } }),
+    queryFn: () => api<{ items: LOrder[]; counts: Record<Tab, number> }>('/logistics/orders', { query: { tab } }),
     refetchInterval: 60_000,
   });
   const c = q.data?.counts;
-  const tabs: [typeof tab, string, number | undefined][] = [
-    ['todo', 'Para separar', c?.todo],
-    ['route', 'Em entrega', c?.route],
-    ['done', 'Entregues', undefined],
-  ];
+  const current = TABS.find((t) => t.key === tab)!;
   return (
     <Shell>
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-navy-900">Separação e entrega</h1>
-          {!!c?.newOnes && <p className="mt-1 text-sm font-medium text-amber-700">{c.newOnes} pedido(s) novo(s) chegaram. Marque “Recebido na logística”.</p>}
+          {!!c?.new && tab !== 'new' && (
+            <button onClick={() => setTab('new')} className="mt-1 text-left text-sm font-semibold text-amber-700 underline">
+              {c.new} pedido(s) novo(s) chegaram — ver
+            </button>
+          )}
         </div>
         <Button variant="secondary" size="sm" icon={<RefreshCw className={q.isFetching ? 'size-4 animate-spin' : 'size-4'} />} onClick={() => q.refetch()}>
           Atualizar
         </Button>
       </div>
       <div className="mb-4 grid grid-cols-3 gap-2">
-        {tabs.map(([k, label, n]) => (
-          <button
-            key={k}
-            onClick={() => setTab(k)}
-            className={cx('rounded-xl border px-2 py-3 text-sm font-semibold', tab === k ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white text-navy-900')}
-          >
-            {label}
-            {n !== undefined && <span className={cx('ml-1.5 rounded-full px-2 py-0.5 text-xs', tab === k ? 'bg-gold-500 text-white' : 'bg-navy-50')}>{n}</span>}
-          </button>
-        ))}
+        {TABS.map((t) => {
+          const n = c?.[t.key];
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={cx(
+                'flex flex-col items-center justify-center rounded-xl border px-1 py-2.5 text-sm font-semibold leading-tight',
+                active ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white text-navy-900',
+              )}
+            >
+              <span>{t.label}</span>
+              <span
+                className={cx(
+                  'mt-1 min-w-7 rounded-full px-2 py-0.5 text-xs',
+                  active ? 'bg-gold-500 text-white' : t.key === 'new' && n ? 'bg-amber-500 text-white' : 'bg-navy-50 text-navy-800',
+                )}
+              >
+                {n ?? '–'}
+              </span>
+            </button>
+          );
+        })}
       </div>
       {q.isLoading ? (
         <Loading />
@@ -104,7 +157,7 @@ export function LogisticsList() {
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data?.items.length ? (
         <Card>
-          <EmptyState title={tab === 'todo' ? 'Nenhum pedido para separar' : tab === 'route' ? 'Nenhum pedido em entrega' : 'Nenhum pedido entregue nos últimos 45 dias'} icon={<Truck className="size-6" />} />
+          <EmptyState title={current.empty} icon={<Truck className="size-6" />} />
         </Card>
       ) : (
         <ul className="space-y-3">
@@ -118,12 +171,16 @@ export function LogisticsList() {
                   </div>
                   {o.status === 'AWAITING_PICKING' ? <Badge tone="amber">NOVO</Badge> : <Badge tone="violet">{ORDER_STATUS_LABELS[o.status]}</Badge>}
                 </div>
+                {o.expectedDelivery && tab !== 'done' && (
+                  <div className="mt-2">
+                    <DeliveryDeadline date={o.expectedDelivery} />
+                  </div>
+                )}
                 <p className="mt-2 flex items-start gap-1.5 text-sm text-muted">
                   <MapPin className="mt-0.5 size-4 shrink-0" /> {o.client.address || 'Endereço não informado'}
                 </p>
                 <p className="mt-1 text-sm text-muted">
                   {o.items.length} produto(s) • pedido de {formatDateBR(o.orderDate)}
-                  {o.expectedDelivery && ` • entregar até ${formatDateBR(o.expectedDelivery)}`}
                 </p>
               </Link>
             </li>
@@ -182,6 +239,11 @@ export function LogisticsOrder() {
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-gold-600">{o.statusLabel}</p>
         <h1 className="text-2xl font-semibold text-navy-900">Pedido {o.number}</h1>
+        {o.expectedDelivery && o.status !== 'DELIVERED' && o.status !== 'COMPLETED' && (
+          <div className="mt-2">
+            <DeliveryDeadline date={o.expectedDelivery} big />
+          </div>
+        )}
       </div>
 
       <Card className="mb-4">
@@ -195,7 +257,6 @@ export function LogisticsOrder() {
         )}
         <p className="mt-3 text-sm text-muted">
           Vendedor: {o.salesRep.fullName} • Pedido de {formatDateBR(o.orderDate)}
-          {o.expectedDelivery && ` • Entregar até ${formatDateBR(o.expectedDelivery)}`}
         </p>
         {o.notes && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><strong>Observação:</strong> {o.notes}</p>}
       </Card>

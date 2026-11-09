@@ -64,8 +64,9 @@ export function renderPickingPdf(d: PickingData): Promise<Buffer> {
       ];
       let iy = y + 10;
       for (const [k, v] of info) {
-        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(GRAY).text(k.toUpperCase(), cx, iy);
-        doc.font('Helvetica').fontSize(10).fillColor('#222').text(t(v), cx, iy + 10, { width: R - cx - 10 });
+        const urgent = k === 'Previsão de entrega' && !!d.expectedDelivery;
+        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(urgent ? '#C62828' : GRAY).text(urgent ? 'ENTREGAR ATÉ' : k.toUpperCase(), cx, iy);
+        doc.font(urgent ? 'Helvetica-Bold' : 'Helvetica').fontSize(urgent ? 13 : 10).fillColor(urgent ? '#C62828' : '#222').text(t(v), cx, iy + 10, { width: R - cx - 10 });
         iy += 27;
       }
       y += boxH + 14;

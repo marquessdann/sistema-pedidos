@@ -62,23 +62,46 @@ function view(o: any) {
 export async function logisticsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireLogistics);
 
+  /** Uma aba por etapa da logística (com contador em cada uma). */
+  const TABS = {
+    new: ['AWAITING_PICKING'],
+    received: ['LOGISTICS_RECEIVED'],
+    picking: ['PICKING'],
+    separated: ['AWAITING_SHIPMENT'],
+    route: ['SHIPPED', 'OUT_FOR_DELIVERY'],
+    done: ['DELIVERED', 'COMPLETED'],
+    todo: ORDER_LOGISTICS_STATUSES,
+  } satisfies Record<string, OrderStatus[]>;
+
   app.get('/orders', async (req) => {
-    const { tab } = z.object({ tab: z.enum(['todo', 'route', 'done']).default('todo') }).parse(req.query);
-    const statuses: OrderStatus[] = tab === 'todo' ? ORDER_LOGISTICS_STATUSES : tab === 'route' ? ['SHIPPED', 'OUT_FOR_DELIVERY'] : ['DELIVERED', 'COMPLETED'];
+    const { tab } = z.object({ tab: z.enum(['new', 'received', 'picking', 'separated', 'route', 'done', 'todo']).default('new') }).parse(req.query);
+    const statuses: OrderStatus[] = TABS[tab];
     const since = new Date(Date.now() - 45 * 86_400_000);
-    const [orders, counts] = await Promise.all([
+    const recentDone = { status: { in: TABS.done }, updatedAt: { gte: since } };
+    const [orders, counts, doneCount] = await Promise.all([
       prisma.order.findMany({
-        where: { status: { in: statuses }, ...(tab === 'done' ? { updatedAt: { gte: since } } : {}) },
-        orderBy: tab === 'done' ? { updatedAt: 'desc' } : { orderDate: 'asc' },
+        where: tab === 'done' ? recentDone : { status: { in: statuses } },
+        // entrega mais urgente primeiro (sem data por último); entregues: os mais recentes primeiro
+        orderBy: tab === 'done' ? [{ updatedAt: 'desc' }] : [{ expectedDelivery: { sort: 'asc', nulls: 'last' } }, { orderDate: 'asc' }],
         take: 200,
         select,
       }),
       prisma.order.groupBy({ by: ['status'], where: { status: { in: [...ORDER_LOGISTICS_STATUSES, 'SHIPPED', 'OUT_FOR_DELIVERY'] } }, _count: true }),
+      prisma.order.count({ where: recentDone }),
     ]);
-    const count = (list: string[]) => counts.filter((c) => list.includes(c.status)).reduce((a, c) => a + c._count, 0);
+    const count = (list: readonly string[]) => counts.filter((c) => list.includes(c.status)).reduce((a, c) => a + c._count, 0);
     return {
       items: orders.map(view),
-      counts: { todo: count(ORDER_LOGISTICS_STATUSES), route: count(['SHIPPED', 'OUT_FOR_DELIVERY']), newOnes: count(['AWAITING_PICKING']) },
+      counts: {
+        new: count(TABS.new),
+        received: count(TABS.received),
+        picking: count(TABS.picking),
+        separated: count(TABS.separated),
+        route: count(TABS.route),
+        done: doneCount,
+        todo: count(ORDER_LOGISTICS_STATUSES),
+        newOnes: count(TABS.new),
+      },
     };
   });
 

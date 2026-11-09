@@ -71,7 +71,7 @@ describe('Ciclo do pedido com chavinhas', () => {
     await a.post(`/api/admin/orders/${order.id}/progress`, { step: 'AWAITING_PICKING', on: true });
     const list = await l.get('/api/logistics/orders');
     expect(list.body.items).toHaveLength(1);
-    expect(list.body.counts.newOnes).toBe(1);
+    expect(list.body.counts).toMatchObject({ new: 1, received: 0, picking: 0, separated: 0, route: 0 });
     const raw = JSON.stringify(list.body);
     expect(raw).not.toMatch(/Cents|price|discount|margin|commission/i);
     expect(list.body.items[0].items[0]).toMatchObject({ sku: 'A-001', quantity: 2 });
@@ -82,8 +82,13 @@ describe('Ciclo do pedido com chavinhas', () => {
       expect(r.status, step).toBe(200);
     }
     expect((await v.get(`/api/seller/orders/${order.id}`)).body.status).toBe('OUT_FOR_DELIVERY');
+    expect((await l.get('/api/logistics/orders?tab=new')).body.items).toHaveLength(0);
+    expect((await l.get('/api/logistics/orders?tab=separated')).body.items).toHaveLength(0);
     expect((await l.get('/api/logistics/orders?tab=route')).body.items).toHaveLength(1);
     expect((await l.post(`/api/logistics/orders/${order.id}/progress`, { step: 'DELIVERED', on: true })).body.status).toBe('DELIVERED');
+    const done = await l.get('/api/logistics/orders?tab=done');
+    expect(done.body.items).toHaveLength(1);
+    expect(done.body.counts.done).toBe(1);
 
     // etapas do escritório e áreas restritas: bloqueadas
     expect((await l.post(`/api/logistics/orders/${order.id}/progress`, { step: 'INVOICED', on: false })).status).toBe(400);
