@@ -317,7 +317,7 @@ export default function DocWizard({ mode }: { mode: Mode }) {
       wizard: { mode, state: s },
     });
     const what = isQuote ? 'Orçamento salvo' : action === 'DRAFT' ? 'Rascunho salvo' : 'Pedido salvo';
-    toast.success(`${what} no aparelho (sem internet). Ele será enviado quando você sincronizar.`, { duration: 6000 });
+    toast.success(`${what} no celular. Será enviado sozinho quando a internet voltar.`, { duration: 6000 });
     clearSession(storeKey);
     nav('/vendedor/sincronizar', { replace: true });
   };
@@ -924,8 +924,7 @@ function StepConfirm({ s, cfg, calc, client, sellerName, isQuote, overLimit, rea
           {server && !preview.data?.offline && <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="size-3.5" /> Valores validados pelo servidor.</p>}
           {preview.data?.offline && (
             <p className="flex items-start gap-1 text-xs text-amber-800">
-              <CloudOff className="mt-px size-3.5 shrink-0" /> Sem internet: valores calculados com os preços baixados em {formatDateTimeBR(preview.data.pricesFrom)}. O sistema confere de novo ao sincronizar.
-            </p>
+              <CloudOff className="mt-px size-3.5 shrink-0" /> Sem internet: valores com os preços de {formatDateTimeBR(preview.data.pricesFrom)}. </p>
           )}
         </div>
       </div>

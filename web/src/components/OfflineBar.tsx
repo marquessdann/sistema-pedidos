@@ -3,20 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CloudOff, RefreshCw, UploadCloud } from 'lucide-react';
-import { formatDateTimeBR } from '@della/shared';
-import { downloadSnapshot, isForcedOffline, listOutbox, loadSnapshot, syncNow, useOffline, type SyncResult } from '../lib/offline';
+import { downloadSnapshot, listOutbox, loadSnapshot, syncNow, useOffline, type SyncResult } from '../lib/offline';
 import { errorMessage } from '../lib/api';
-import { Button } from './ui';
 
 /** Mensagem do resultado da sincronização. */
 export function syncToast(r: SyncResult) {
-  if (r.offline) return toast.error('Sem internet agora. Tudo continua guardado no aparelho; tente de novo quando tiver sinal.');
+  if (r.offline) return toast.error('Sem internet agora. Os pedidos continuam guardados no celular.');
   const parts: string[] = [];
   if (r.sent) parts.push(`${r.sent} enviado(s)`);
   if (r.review) parts.push(`${r.review} com preço alterado (confira)`);
   if (r.errors) parts.push(`${r.errors} com problema (confira)`);
-  if (r.review || r.errors) toast.warning(`Sincronizado: ${parts.join(', ')}.`, { duration: 8000 });
-  else toast.success(r.sent ? `Sincronizado: ${parts.join(', ')}. Dados atualizados.` : 'Dados atualizados. Pronto para usar sem internet.');
+  if (r.review || r.errors) toast.warning(`Enviado: ${parts.join(', ')}. Veja em “Enviar pedidos”.`, { duration: 8000 });
+  else if (r.sent) toast.success(`Pronto! ${parts.join(', ')}.`);
 }
 
 export async function runSync(qc?: ReturnType<typeof useQueryClient>) {
@@ -57,7 +55,7 @@ export function OfflineBar() {
   useEffect(() => {
     const onOnline = () => {
       void (async () => {
-        if (!isForcedOffline() && (await listOutbox()).length) await runSync(qc);
+        if ((await listOutbox()).length) await runSync(qc);
       })();
     };
     window.addEventListener('online', onOnline);
@@ -65,29 +63,26 @@ export function OfflineBar() {
   }, [qc]);
 
   if (!o.offline && o.pending === 0) return null;
+  const n = o.pending;
+  const itens = `${n} ${n === 1 ? 'item guardado' : 'itens guardados'} no celular`;
   return (
-    <div className={o.offline ? 'border-b border-amber-200 bg-amber-50' : 'border-b border-sky-200 bg-sky-50'}>
-      <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-2 lg:px-8">
-        {o.offline ? <CloudOff className="size-5 shrink-0 text-amber-700" /> : <UploadCloud className="size-5 shrink-0 text-sky-700" />}
-        <button type="button" className="min-w-0 flex-1 text-left text-xs leading-snug" onClick={() => nav('/vendedor/sincronizar')}>
+    <button
+      type="button"
+      onClick={() => nav('/vendedor/sincronizar')}
+      className={o.offline ? 'block w-full border-b border-amber-200 bg-amber-50 text-left' : 'block w-full border-b border-sky-200 bg-sky-50 text-left'}
+    >
+      <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-2.5 lg:px-8">
+        {o.offline ? <CloudOff className="size-6 shrink-0 text-amber-700" /> : <UploadCloud className="size-6 shrink-0 text-sky-700" />}
+        <span className="min-w-0 flex-1 text-sm leading-snug">
           <span className="block font-semibold text-navy-900">
-            {o.offline ? (o.forced ? 'Modo sem internet ligado' : 'Sem internet') : 'Itens aguardando envio'}
-            {o.pending > 0 && ` • ${o.pending} aguardando envio`}
+            {o.offline ? 'Sem internet — pode continuar trabalhando' : o.syncing ? 'Enviando…' : itens}
           </span>
-          <span className="block truncate text-muted">
-            {o.snapshot ? `Dados do aparelho de ${formatDateTimeBR(o.snapshot.savedAt).replace(/\/\d{4}/, '')}` : 'Sem dados baixados: sincronize quando tiver internet.'}
+          <span className="block text-slate-600">
+            {o.offline ? (n ? `${itens}. Serão enviados quando a internet voltar.` : 'Os pedidos ficam guardados no celular.') : 'Toque aqui para enviar.'}
           </span>
-        </button>
-        <Button
-          size="sm"
-          variant={o.offline ? 'secondary' : 'primary'}
-          icon={<RefreshCw className={o.syncing ? 'size-4 animate-spin' : 'size-4'} />}
-          disabled={o.syncing || (!o.online && !o.forced)}
-          onClick={() => (o.forced ? nav('/vendedor/sincronizar') : void runSync(qc))}
-        >
-          Sincronizar
-        </Button>
+        </span>
+        {!o.offline && <RefreshCw className={o.syncing ? 'size-5 shrink-0 animate-spin text-sky-700' : 'size-5 shrink-0 text-sky-700'} />}
       </div>
-    </div>
+    </button>
   );
 }

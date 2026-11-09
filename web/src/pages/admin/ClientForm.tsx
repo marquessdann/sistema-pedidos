@@ -135,7 +135,7 @@ export default function ClientForm({ seller = false }: { seller?: boolean }) {
       if (seller) {
         toast.success(
           c?.offline
-            ? 'Cliente guardado no aparelho (sem internet). Já dá para fazer orçamento; o cadastro vai para aprovação quando você sincronizar.'
+            ? 'Cliente guardado no celular. Já dá para fazer orçamento; o cadastro é enviado sozinho quando a internet voltar.'
             : isNew
               ? 'Cadastro enviado para aprovação. Você já pode fazer orçamentos para este cliente.'
               : 'Correção enviada para aprovação.',
@@ -287,7 +287,7 @@ export default function ClientForm({ seller = false }: { seller?: boolean }) {
                 {receitaState === 'notfound' && <p className="mt-1 text-xs text-amber-700">CNPJ não encontrado na Receita. Confira o número ou preencha manualmente.</p>}
                 {seller && isNew && (receitaState === 'error' || workingOffline()) ? (
                   <p className="mt-1 text-xs text-amber-800">
-                    <strong>Sem internet:</strong> pode salvar só com o CNPJ. Razão social, endereço e contato são preenchidos pela Receita automaticamente quando você sincronizar.
+                    <strong>Sem internet:</strong> pode salvar só com o CNPJ. Razão social, endereço e contato são preenchidos sozinhos quando a internet voltar.
                   </p>
                 ) : (
                   receitaState === 'error' && <p className="mt-1 text-xs text-amber-700">Consulta à Receita indisponível agora (sem internet?). Preencha manualmente.</p>

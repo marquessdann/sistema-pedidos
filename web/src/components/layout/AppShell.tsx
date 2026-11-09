@@ -110,7 +110,7 @@ export function AppShell() {
         { to: '/vendedor/processo', label: 'Processo do pedido', short: 'Andamento', icon: <Route /> },
         { to: '/vendedor/orcamentos', label: 'Orçamentos', icon: <FileText /> },
         { to: '/vendedor/catalogo', label: 'Catálogo', icon: <Boxes /> },
-        { to: '/vendedor/sincronizar', label: 'Sincronizar (sem internet)', short: 'Sincronizar', icon: <RefreshCw />, badge: offline.pending },
+        { to: '/vendedor/sincronizar', label: 'Enviar pedidos', short: 'Enviar', icon: <RefreshCw />, badge: offline.pending },
       ];
 
   const sidebar = (
@@ -158,7 +158,7 @@ export function AppShell() {
                 title: 'Sair da conta?',
                 message: offline.offline
                   ? 'Você está sem internet: depois de sair, só será possível entrar de novo com sinal. O que estiver aguardando envio continua guardado no aparelho.'
-                  : `Há ${offline.pending} item(ns) aguardando envio. Eles continuam guardados neste aparelho e serão enviados quando você entrar de novo e sincronizar.`,
+                  : `Há ${offline.pending} item(ns) guardado(s) no celular. Eles não se perdem: são enviados quando você entrar de novo.`,
                 tone: 'danger',
                 confirmLabel: 'Sair mesmo assim',
                 cancelLabel: 'Continuar no sistema',

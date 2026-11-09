@@ -136,7 +136,6 @@ let snapshot: Snapshot | null = null;
 let snapshotLoaded: Promise<Snapshot | null> | null = null;
 let syncing = false;
 let downloading = false;
-const FORCE_KEY = 'della:offline-forced';
 
 const k = (name: string) => `${name}:${userId}`;
 
@@ -153,23 +152,16 @@ export function setOfflineUser(id: string | null) {
   if (id) void loadSnapshot().then(emit);
 }
 
+/** O modo "sem internet" manual foi retirado (o sistema detecta sozinho); limpa o que tiver ficado salvo. */
+try {
+  localStorage.removeItem('della:offline-forced');
+} catch {
+  /* ignore */
+}
 export function isForcedOffline() {
-  try {
-    return localStorage.getItem(FORCE_KEY) === '1';
-  } catch {
-    return false;
-  }
+  return false;
 }
 
-export function setForcedOffline(v: boolean) {
-  try {
-    if (v) localStorage.setItem(FORCE_KEY, '1');
-    else localStorage.removeItem(FORCE_KEY);
-  } catch {
-    /* ignore */
-  }
-  emit();
-}
 
 /** Trabalhando sem internet: aparelho sem conexão ou modo "sem internet" ligado pelo vendedor (sinal fraco). */
 export function workingOffline() {
