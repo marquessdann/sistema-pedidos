@@ -278,12 +278,12 @@ describe('Andamento do pedido (status)', () => {
   it('histórico de alteração de status registra anterior, novo, data, usuário e observação', async () => {
     const o = (await victor.post('/api/seller/orders', orderBody())).body.order;
     const admin = await loginAdmin(app);
-    for (const s of ['APPROVED', 'AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']) {
+    for (const s of ['APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']) {
       const r = await admin.post(`/api/admin/orders/${o.id}/status`, { status: s, note: `Mudança para ${s}` });
       expect(r.status).toBe(200);
     }
     const h = await victor.get(`/api/seller/orders/${o.id}/history`);
-    expect(h.body.status.map((x: any) => x.toStatus)).toEqual(['CREATED', 'APPROVED', 'AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']);
+    expect(h.body.status.map((x: any) => x.toStatus)).toEqual(['CREATED', 'APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']);
     const last = h.body.status.at(-1);
     expect(last.fromStatus).toBe('AWAITING_SHIPMENT');
     expect(last.user.name).toBe('Admin Teste');
@@ -322,7 +322,7 @@ describe('Andamento do pedido (status)', () => {
     let p = await prisma.product.findUniqueOrThrow({ where: { id: fx.p1 } });
     expect(p.reservedQty).toBe(5);
     expect(p.stockQty).toBe(50);
-    for (const s of ['AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']) await admin.post(`/api/admin/orders/${o.id}/status`, { status: s });
+    for (const s of ['INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']) await admin.post(`/api/admin/orders/${o.id}/status`, { status: s });
     p = await prisma.product.findUniqueOrThrow({ where: { id: fx.p1 } });
     expect(p.reservedQty).toBe(0);
     expect(p.stockQty).toBe(45);

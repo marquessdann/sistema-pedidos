@@ -21,6 +21,8 @@ type Kind = 'orders' | 'quotes';
 
 /** Verifica se o usuário pode acessar o pedido/orçamento (admin: todos; vendedor: os seus, salvo permissão). */
 async function loadDoc(req: FastifyRequest, kind: Kind, id: string) {
+  // logística usa o PDF de separação (sem valores), nunca o documento comercial
+  if (req.user!.role === 'LOGISTICS') throw new AppError(403, 'Acesso restrito.', 'FORBIDDEN');
   const scope =
     req.user!.role === 'ADMIN'
       ? {}

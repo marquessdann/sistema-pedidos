@@ -4,6 +4,7 @@ export const ORDER_STATUSES = [
   'PENDING_APPROVAL',
   'APPROVED',
   'AWAITING_PICKING',
+  'LOGISTICS_RECEIVED',
   'PICKING',
   'AWAITING_SHIPMENT',
   'INVOICED',
@@ -21,9 +22,10 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   CREATED: 'Pedido criado',
   PENDING_APPROVAL: 'Aguardando aprovação comercial',
   APPROVED: 'Pedido aprovado',
-  AWAITING_PICKING: 'Aguardando separação',
+  AWAITING_PICKING: 'Enviado para a logística',
+  LOGISTICS_RECEIVED: 'Recebido na logística',
   PICKING: 'Em separação',
-  AWAITING_SHIPMENT: 'Aguardando expedição',
+  AWAITING_SHIPMENT: 'Separado',
   INVOICED: 'Faturado',
   SHIPPED: 'Enviado',
   OUT_FOR_DELIVERY: 'Em rota de entrega',
@@ -33,15 +35,20 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   REJECTED: 'Reprovado',
 };
 
-/** Linha do tempo "feliz" exibida no acompanhamento do pedido. */
+/**
+ * Ciclo do pedido:
+ * vendedor → (Daniel/Vinicius) aprovado → faturado → enviado para a logística
+ * → (logística) recebido → em separação → separado → em rota de entrega → entregue.
+ */
 export const ORDER_TIMELINE: OrderStatus[] = [
   'CREATED',
   'PENDING_APPROVAL',
   'APPROVED',
+  'INVOICED',
   'AWAITING_PICKING',
+  'LOGISTICS_RECEIVED',
   'PICKING',
   'AWAITING_SHIPMENT',
-  'INVOICED',
   'SHIPPED',
   'OUT_FOR_DELIVERY',
   'DELIVERED',
@@ -55,23 +62,37 @@ export const ORDER_CONFIRMED_STATUSES: OrderStatus[] = [
   'CREATED',
   'PENDING_APPROVAL',
   'APPROVED',
+  'INVOICED',
   'AWAITING_PICKING',
+  'LOGISTICS_RECEIVED',
   'PICKING',
   'AWAITING_SHIPMENT',
-  'INVOICED',
   'SHIPPED',
   'OUT_FOR_DELIVERY',
   'DELIVERED',
   'COMPLETED',
 ];
 
-/** Status considerados "faturados/realizados" (faturado, expedido, em rota ou entregue). */
-export const ORDER_FULFILLED_STATUSES: OrderStatus[] = ['INVOICED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'];
+/** Status já faturados (o faturamento acontece antes de o pedido ir para a logística). */
+export const ORDER_FULFILLED_STATUSES: OrderStatus[] = [
+  'INVOICED',
+  'AWAITING_PICKING',
+  'LOGISTICS_RECEIVED',
+  'PICKING',
+  'AWAITING_SHIPMENT',
+  'SHIPPED',
+  'OUT_FOR_DELIVERY',
+  'DELIVERED',
+  'COMPLETED',
+];
+
+/** Pedidos com a logística (para separar). */
+export const ORDER_LOGISTICS_STATUSES: OrderStatus[] = ['AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT'];
 
 /** Status em que a mercadoria já saiu (baixa de estoque, quando o controle estiver ligado). */
 export const ORDER_DISPATCHED_STATUSES: OrderStatus[] = ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'];
 
-/** Transições padrão (o administrador pode ajustar em Configurações). */
+/** Transições padrão do ciclo (o administrador pode ajustar em Configurações). */
 export const DEFAULT_ORDER_TRANSITIONS: [OrderStatus, OrderStatus][] = [
   ['CREATED', 'PENDING_APPROVAL'],
   ['CREATED', 'APPROVED'],
@@ -80,24 +101,22 @@ export const DEFAULT_ORDER_TRANSITIONS: [OrderStatus, OrderStatus][] = [
   ['PENDING_APPROVAL', 'APPROVED'],
   ['PENDING_APPROVAL', 'REJECTED'],
   ['PENDING_APPROVAL', 'CANCELLED'],
-  ['APPROVED', 'AWAITING_PICKING'],
+  ['APPROVED', 'INVOICED'],
   ['APPROVED', 'CANCELLED'],
-  ['AWAITING_PICKING', 'PICKING'],
+  ['INVOICED', 'AWAITING_PICKING'],
+  ['INVOICED', 'CANCELLED'],
+  ['AWAITING_PICKING', 'LOGISTICS_RECEIVED'],
   ['AWAITING_PICKING', 'CANCELLED'],
+  ['LOGISTICS_RECEIVED', 'PICKING'],
+  ['LOGISTICS_RECEIVED', 'CANCELLED'],
   ['PICKING', 'AWAITING_SHIPMENT'],
   ['PICKING', 'CANCELLED'],
+  ['AWAITING_SHIPMENT', 'OUT_FOR_DELIVERY'],
   ['AWAITING_SHIPMENT', 'SHIPPED'],
-  ['AWAITING_SHIPMENT', 'INVOICED'],
   ['AWAITING_SHIPMENT', 'CANCELLED'],
-  ['APPROVED', 'INVOICED'],
-  ['PICKING', 'INVOICED'],
-  ['INVOICED', 'SHIPPED'],
-  ['INVOICED', 'OUT_FOR_DELIVERY'],
-  ['INVOICED', 'DELIVERED'],
-  ['INVOICED', 'CANCELLED'],
   ['SHIPPED', 'OUT_FOR_DELIVERY'],
-  ['OUT_FOR_DELIVERY', 'DELIVERED'],
   ['SHIPPED', 'DELIVERED'],
+  ['OUT_FOR_DELIVERY', 'DELIVERED'],
   ['DELIVERED', 'COMPLETED'],
 ];
 
@@ -170,30 +189,43 @@ export const CONVERSION_PRICE_POLICY_LABELS = {
 export type ConversionPricePolicy = keyof typeof CONVERSION_PRICE_POLICY_LABELS;
 
 /**
- * Etapas simples de andamento (chavinhas do administrador/gestor e acompanhamento do vendedor).
- * Cada etapa ligada implica as anteriores.
+ * Etapas do andamento (chavinhas). "logistics" = etapas que a logística (Antonio) pode marcar;
+ * administrador e gestor marcam todas. Cada etapa ligada implica as anteriores.
  */
 export const ORDER_PROGRESS_STEPS = [
-  { status: 'PICKING', label: 'Em separação' },
-  { status: 'INVOICED', label: 'Faturado' },
-  { status: 'OUT_FOR_DELIVERY', label: 'Em rota de entrega' },
-  { status: 'DELIVERED', label: 'Entregue' },
-] as const satisfies readonly { status: OrderStatus; label: string }[];
+  { status: 'APPROVED', label: 'Aprovado', logistics: false },
+  { status: 'INVOICED', label: 'Faturado', logistics: false },
+  { status: 'AWAITING_PICKING', label: 'Enviado para a logística', logistics: false },
+  { status: 'LOGISTICS_RECEIVED', label: 'Recebido na logística', logistics: true },
+  { status: 'PICKING', label: 'Em separação', logistics: true },
+  { status: 'AWAITING_SHIPMENT', label: 'Separado', logistics: true },
+  { status: 'OUT_FOR_DELIVERY', label: 'Em rota de entrega', logistics: true },
+  { status: 'DELIVERED', label: 'Entregue', logistics: true },
+] as const satisfies readonly { status: OrderStatus; label: string; logistics: boolean }[];
 
-/** Quantas etapas de andamento o pedido já cumpriu (0 a 4); -1 = cancelado/reprovado/rascunho. */
+export type OrderProgressStep = (typeof ORDER_PROGRESS_STEPS)[number]['status'];
+
+/** Quantas etapas o pedido já cumpriu (0 a 8); -1 = rascunho, cancelado ou reprovado. */
 export function orderProgressLevel(status: string): number {
   switch (status) {
-    case 'PICKING':
-    case 'AWAITING_SHIPMENT':
+    case 'APPROVED':
       return 1;
     case 'INVOICED':
-    case 'SHIPPED':
       return 2;
-    case 'OUT_FOR_DELIVERY':
+    case 'AWAITING_PICKING':
       return 3;
+    case 'LOGISTICS_RECEIVED':
+      return 4;
+    case 'PICKING':
+      return 5;
+    case 'AWAITING_SHIPMENT':
+      return 6;
+    case 'SHIPPED':
+    case 'OUT_FOR_DELIVERY':
+      return 7;
     case 'DELIVERED':
     case 'COMPLETED':
-      return 4;
+      return 8;
     case 'DRAFT':
     case 'CANCELLED':
     case 'REJECTED':

@@ -35,10 +35,12 @@ const SellerQuotes = lazy(() => import('./pages/seller/Quotes'));
 const SellerQuoteView = lazy(() => import('./pages/seller/QuoteView'));
 const Catalog = lazy(() => import('./pages/seller/Catalog'));
 const SyncPage = lazy(() => import('./pages/seller/Sync'));
+const LogisticsList = lazy(() => import('./pages/logistics/Logistics').then((m) => ({ default: m.LogisticsList })));
+const LogisticsOrder = lazy(() => import('./pages/logistics/Logistics').then((m) => ({ default: m.LogisticsOrder })));
 
-const homeOf = (role: string) => (role === 'SELLER' ? '/vendedor' : '/admin');
+const homeOf = (role: string) => (role === 'SELLER' ? '/vendedor' : role === 'LOGISTICS' ? '/logistica' : '/admin');
 
-function RequireRole({ role, children }: { role?: ('ADMIN' | 'MANAGER' | 'SELLER')[]; children: ReactNode }) {
+function RequireRole({ role, children }: { role?: ('ADMIN' | 'MANAGER' | 'SELLER' | 'LOGISTICS')[]; children: ReactNode }) {
   const { me, loading } = useAuth();
   const loc = useLocation();
   if (loading) return <Loading />;
@@ -82,6 +84,8 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/trocar-senha" element={<ChangePasswordPage />} />
         <Route path="/" element={<Home />} />
+        <Route path="/logistica" element={<RequireRole role={['LOGISTICS']}><LogisticsList /></RequireRole>} />
+        <Route path="/logistica/:id" element={<RequireRole role={['LOGISTICS']}><LogisticsOrder /></RequireRole>} />
         <Route
           element={
             <RequireRole>

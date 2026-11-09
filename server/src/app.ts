@@ -18,6 +18,7 @@ import { adminRoutes } from './modules/admin';
 import { sellerRoutes } from './modules/seller';
 import { managerRoutes } from './modules/manager';
 import { cnpjRoutes } from './modules/cnpj';
+import { logisticsRoutes } from './modules/logistics';
 import { documentRoutes, type PdfRenderer } from './modules/documents/routes';
 import { fileRoutes } from './modules/documents/files';
 
@@ -84,6 +85,7 @@ export async function buildApp(deps: AppDeps = {}) {
   await app.register(sellerRoutes, { prefix: '/api/seller' });
   await app.register(managerRoutes, { prefix: '/api/manager' });
   await app.register(cnpjRoutes, { prefix: '/api/cnpj' });
+  await app.register(logisticsRoutes, { prefix: '/api/logistics' });
   await app.register(documentRoutes(deps.pdfRenderer), { prefix: '/api/documents' });
   await app.register(fileRoutes, { prefix: '/api/files' });
 

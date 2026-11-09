@@ -90,7 +90,7 @@ export async function buildReport(kind: string, f: Filter): Promise<Report> {
     case 'cancelled': {
       const statuses =
         kind === 'pending'
-          ? ['CREATED', 'PENDING_APPROVAL', 'APPROVED', 'AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT']
+          ? ['CREATED', 'PENDING_APPROVAL', 'APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT']
           : kind === 'cancelled'
             ? ['CANCELLED', 'REJECTED']
             : ORDER_CONFIRMED_STATUSES;
@@ -286,8 +286,8 @@ export async function buildReport(kind: string, f: Filter): Promise<Report> {
     case 'summary': {
       const groups: [string, readonly string[]][] = [
         ['Pedidos criados (todos os confirmados)', ORDER_CONFIRMED_STATUSES],
-        ['Pedidos aprovados ou em andamento', ['APPROVED', 'AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT']],
-        ['Faturamento realizado (faturados, enviados, em rota, entregues, concluídos)', ORDER_FULFILLED_STATUSES],
+        ['Pedidos aprovados ou em andamento', ['APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT']],
+        ['Faturamento realizado (faturados em diante)', ORDER_FULFILLED_STATUSES],
         ['Aguardando aprovação', ['CREATED', 'PENDING_APPROVAL']],
         ['Cancelados / reprovados', ['CANCELLED', 'REJECTED']],
       ];
@@ -442,7 +442,7 @@ export async function dashboardData(raw: unknown, repIds?: string[]) {
       prisma.product.count({ where: { deletedAt: null, active: true } }),
       prisma.order.count({ where: { ...base, orderDate: new Date(`${t}T00:00:00Z`), status: { notIn: ['DRAFT'] } } }),
       prisma.order.count({ where: { ...base, ...statusIn(['CREATED', 'PENDING_APPROVAL']) } }),
-      prisma.order.count({ where: { ...base, ...statusIn(['AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT']) } }),
+      prisma.order.count({ where: { ...base, ...statusIn(['AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT']) } }),
       prisma.order.count({ where: { ...base, ...statusIn(['SHIPPED', 'OUT_FOR_DELIVERY']) } }),
       prisma.order.count({ where: { ...base, ...period, ...statusIn(['DELIVERED', 'COMPLETED']) } }),
       prisma.quote.count({ where: { ...base, status: { in: ['DRAFT', 'SENT', 'AWAITING_RESPONSE', 'APPROVED_BY_CLIENT'] } } }),

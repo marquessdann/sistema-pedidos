@@ -289,17 +289,27 @@ async function statusPath(from: OrderStatus, to: OrderStatus): Promise<OrderStat
 }
 
 /**
- * "Chavinhas" de andamento: ligar uma etapa (separação, faturado, em rota, entregue) avança o pedido
- * até ela pelas transições configuradas; desligar volta para a etapa anterior.
+ * "Chavinhas" de andamento: ligar uma etapa avança o pedido até ela pelas transições configuradas
+ * (passando pelas intermediárias); desligar volta para a etapa anterior.
+ * A logística só mexe nas etapas dela e só em pedidos já enviados para a logística.
  */
-export async function setOrderProgress(act: AuditActor & { userId: string }, orderId: string, step: OrderStatus, on: boolean) {
+export async function setOrderProgress(
+  act: AuditActor & { userId: string },
+  orderId: string,
+  step: OrderStatus,
+  on: boolean,
+  opts: { logistics?: boolean } = {},
+) {
   const idx = ORDER_PROGRESS_STEPS.findIndex((s) => s.status === step);
   if (idx < 0) throw unprocessable('Etapa inválida.');
+  const def = ORDER_PROGRESS_STEPS[idx];
+  if (opts.logistics && !def.logistics) throw new AppError(403, 'A logística não pode alterar esta etapa.', 'FORBIDDEN');
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true, number: true, version: true } });
   if (!order) throw notFound('Pedido');
   const level = orderProgressLevel(order.status);
   if (level < 0) throw unprocessable(`Pedido ${ORDER_STATUS_LABELS[order.status as OrderStatus].toLowerCase()} não tem andamento.`, 'ORDER_LOCKED');
-  const label = ORDER_PROGRESS_STEPS[idx].label;
+  if (opts.logistics && level < 3) throw unprocessable('Este pedido ainda não foi enviado para a logística.', 'NOT_IN_LOGISTICS');
+  const label = def.label;
 
   if (on) {
     if (level >= idx + 1) return { status: order.status };
@@ -311,9 +321,10 @@ export async function setOrderProgress(act: AuditActor & { userId: string }, ord
     return { status: step };
   }
 
-  // desligar: volta para a etapa anterior (ou "aprovado", se for a primeira)
+  // desligar: volta para a etapa anterior
   if (level < idx + 1) return { status: order.status };
-  const back: OrderStatus = idx > 0 ? ORDER_PROGRESS_STEPS[idx - 1].status : 'APPROVED';
+  const back: OrderStatus = idx > 0 ? ORDER_PROGRESS_STEPS[idx - 1].status : 'CREATED';
+  if (opts.logistics && orderProgressLevel(back) < 3) throw new AppError(403, 'A logística não pode alterar esta etapa.', 'FORBIDDEN');
   await prisma.$transaction(async (tx) => {
     const upd = await tx.order.updateMany({
       where: { id: orderId, status: order.status, version: order.version },

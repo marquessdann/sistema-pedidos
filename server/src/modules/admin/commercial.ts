@@ -51,7 +51,7 @@ export async function adminCommercialRoutes(app: FastifyInstance) {
   /** Chavinhas de andamento (separação, faturado, em rota, entregue). */
   app.post('/orders/:id/progress', async (req) => {
     const { id } = idParam.parse(req.params);
-    const b = z.object({ step: z.enum(['PICKING', 'INVOICED', 'OUT_FOR_DELIVERY', 'DELIVERED']), on: z.boolean() }).parse(req.body);
+    const b = z.object({ step: z.enum(['APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'OUT_FOR_DELIVERY', 'DELIVERED']), on: z.boolean() }).parse(req.body);
     return setOrderProgress({ ...actor(req), userId: req.user!.id }, id, b.step, b.on);
   });
 

@@ -84,7 +84,7 @@ export async function managerRoutes(app: FastifyInstance) {
 
   app.post('/orders/:id/progress', { preHandler: managerCan('canUpdateOrderStatus') }, async (req) => {
     const { id } = idParam.parse(req.params);
-    const b = z.object({ step: z.enum(['PICKING', 'INVOICED', 'OUT_FOR_DELIVERY', 'DELIVERED']), on: z.boolean() }).parse(req.body);
+    const b = z.object({ step: z.enum(['APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'OUT_FOR_DELIVERY', 'DELIVERED']), on: z.boolean() }).parse(req.body);
     const o = await prisma.order.findFirst({ where: { id, ...scopedRep(req) }, select: { id: true } });
     if (!o) throw notFound('Pedido');
     return setOrderProgress({ ...actor(req), userId: req.user!.id }, id, b.step, b.on);

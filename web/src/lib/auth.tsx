@@ -22,7 +22,7 @@ function writeCachedMe(m: Me | null) {
 }
 
 export interface Me {
-  user: { id: string; username: string; name: string; role: 'ADMIN' | 'MANAGER' | 'SELLER'; mustChangePassword: boolean };
+  user: { id: string; username: string; name: string; role: 'ADMIN' | 'MANAGER' | 'SELLER' | 'LOGISTICS'; mustChangePassword: boolean };
   manager: null | { perms: ManagerPerms; repIds: string[] };
   rep: null | {
     id: string;

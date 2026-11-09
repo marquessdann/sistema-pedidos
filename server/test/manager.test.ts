@@ -123,19 +123,19 @@ describe('Gestor (ex.: Vinicius)', () => {
     expect(ap.body.items).toHaveLength(1);
     expect(JSON.stringify(ap.body)).not.toMatch(/costCents|marginCents/);
     expect((await v.post(`/api/manager/approvals/${ap.body.items[0].id}/decide`, { decision: 'APPROVED' })).status).toBe(200);
-    expect((await v.post(`/api/manager/orders/${o.id}/status`, { status: 'AWAITING_PICKING' })).status).toBe(200);
+    expect((await v.post(`/api/manager/orders/${o.id}/status`, { status: 'INVOICED' })).status).toBe(200);
   });
 
-  it('por padrão o gestor atualiza o andamento: Faturado → Em rota de entrega → Entregue', async () => {
+  it('por padrão o gestor atualiza o andamento: Faturado → Logística → Em rota de entrega → Entregue', async () => {
     const victor = await loginVictor(app);
     const o = await orderFor(victor, fx.clientVictor);
     const v = await makeManager();
-    for (const s of ['APPROVED', 'INVOICED', 'OUT_FOR_DELIVERY', 'DELIVERED']) {
+    for (const s of ['APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'OUT_FOR_DELIVERY', 'DELIVERED']) {
       const r = await v.post(`/api/manager/orders/${o.id}/status`, { status: s, note: s === 'INVOICED' ? 'NF 123' : null });
       expect(r.status, s).toBe(200);
     }
     const h = await victor.get(`/api/seller/orders/${o.id}/history`);
-    expect(h.body.status.map((x: any) => x.toStatus)).toEqual(['CREATED', 'APPROVED', 'INVOICED', 'OUT_FOR_DELIVERY', 'DELIVERED']);
+    expect(h.body.status.map((x: any) => x.toStatus)).toEqual(['CREATED', 'APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'OUT_FOR_DELIVERY', 'DELIVERED']);
     expect(h.body.status[2].user.name).toBe('Vinicius');
     // faturado entra como venda realizada na comissão "somente faturados"
     expect((await v.get('/api/manager/commissions?basis=fulfilled')).body.totals.orders).toBe(1);

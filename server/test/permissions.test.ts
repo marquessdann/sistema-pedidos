@@ -69,7 +69,7 @@ describe('Relatórios e dashboard', () => {
     const o1 = (await victor.post('/api/seller/orders', { idempotencyKey: key(), action: 'CONFIRM', clientId: fx.clientVictor, items: [{ productId: fx.p1, quantity: 2 }], generalDiscountBps: 500 })).body.order;
     await victor.post('/api/seller/orders', { idempotencyKey: key(), action: 'CONFIRM', clientId: fx.clientVictor, items: [{ productId: fx.p3, quantity: 1 }] });
     await victor.post('/api/seller/quotes', { idempotencyKey: key(), clientId: fx.clientVictor, items: [{ productId: fx.p3, quantity: 5 }] });
-    for (const s of ['APPROVED', 'AWAITING_PICKING', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']) await admin.post(`/api/admin/orders/${o1.id}/status`, { status: s });
+    for (const s of ['APPROVED', 'INVOICED', 'AWAITING_PICKING', 'LOGISTICS_RECEIVED', 'PICKING', 'AWAITING_SHIPMENT', 'SHIPPED']) await admin.post(`/api/admin/orders/${o1.id}/status`, { status: s });
 
     const sum = await admin.get('/api/admin/reports/summary');
     const created = sum.body.rows.find((r: any) => r.group.startsWith('Pedidos criados'));

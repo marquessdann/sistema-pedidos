@@ -174,6 +174,11 @@ export async function requireManager(req: FastifyRequest) {
   if (req.user!.role !== 'MANAGER' || !req.manager) throw forbidden('Acesso restrito aos gestores.');
 }
 
+export async function requireLogistics(req: FastifyRequest) {
+  await requireAuth(req);
+  if (req.user!.role !== 'LOGISTICS') throw forbidden('Acesso restrito à logística.');
+}
+
 /** Exige uma permissão específica do gestor (validada no servidor). */
 export function managerCan(perm: ManagerPermission) {
   return async (req: FastifyRequest) => {

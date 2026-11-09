@@ -21,6 +21,8 @@ enum Role {
   /// Gestor: acesso restrito aos vendedores supervisionados e às permissões marcadas
   MANAGER
   SELLER
+  /// Logística (ex.: Antonio): só vê os pedidos enviados para separação e marca as etapas de entrega
+  LOGISTICS
 }
 
 enum ClientStatus {
@@ -37,6 +39,7 @@ enum OrderStatus {
   PENDING_APPROVAL
   APPROVED
   AWAITING_PICKING
+  LOGISTICS_RECEIVED
   PICKING
   AWAITING_SHIPMENT
   INVOICED

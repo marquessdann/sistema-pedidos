@@ -141,7 +141,7 @@ export async function adminRepRoutes(app: FastifyInstance) {
 
   app.post('/users', async (req, reply) => {
     const b = z
-      .object({ username: usernameSchema, name: reqText(120), password: passwordSchema, role: z.enum(['ADMIN', 'MANAGER']).default('ADMIN'), manager: managerSchema.optional() })
+      .object({ username: usernameSchema, name: reqText(120), password: passwordSchema, role: z.enum(['ADMIN', 'MANAGER', 'LOGISTICS']).default('ADMIN'), manager: managerSchema.optional() })
       .parse(req.body);
     if (await prisma.user.findUnique({ where: { username: b.username } })) throw conflict('Este nome de usuário já está em uso.', 'DUPLICATE_USERNAME');
     const passwordHash = await hashPassword(b.password);
@@ -154,7 +154,7 @@ export async function adminRepRoutes(app: FastifyInstance) {
         const { repIds, ...perms } = managerSchema.parse(b.manager ?? {});
         await tx.managerProfile.create({ data: { userId: created.id, ...perms, reps: { create: repIds.map((salesRepId) => ({ salesRepId })) } } });
       }
-      await audit(tx, actor(req), b.role === 'MANAGER' ? 'MANAGER_CREATED' : 'ADMIN_CREATED', 'user', created.id, { username: created.username, name: created.name, manager: b.manager });
+      await audit(tx, actor(req), b.role === 'MANAGER' ? 'MANAGER_CREATED' : b.role === 'LOGISTICS' ? 'LOGISTICS_USER_CREATED' : 'ADMIN_CREATED', 'user', created.id, { username: created.username, name: created.name, manager: b.manager });
       return created;
     });
     return reply.status(201).send(u);

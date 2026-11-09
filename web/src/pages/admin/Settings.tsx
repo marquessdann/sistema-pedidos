@@ -308,7 +308,7 @@ const DEFAULT_PERMS = { canViewSales: true, canViewCommissions: true, canRelease
 
 function UsersTab() {
   const qc = useQueryClient();
-  const [form, setForm] = useState<null | { id?: string; username: string; name: string; password: string; role: 'ADMIN' | 'MANAGER'; perms: Record<string, boolean>; repIds: string[] }>(null);
+  const [form, setForm] = useState<null | { id?: string; username: string; name: string; password: string; role: 'ADMIN' | 'MANAGER' | 'LOGISTICS'; perms: Record<string, boolean>; repIds: string[] }>(null);
   const [pwd, setPwd] = useState<{ id: string; name: string; password: string } | null>(null);
   const list = useQuery({ queryKey: ['users'], queryFn: () => api<any[]>('/admin/users') });
   const reps = useQuery({ queryKey: ['reps'], queryFn: () => api<{ id: string; fullName: string }[]>('/admin/reps') });
@@ -340,7 +340,8 @@ function UsersTab() {
     onError: (e) => toast.error(errorMessage(e)),
   });
   const repName = (id: string) => reps.data?.find((r) => r.id === id)?.fullName ?? '—';
-  const roleBadge = (r: string) => (r === 'ADMIN' ? <Badge tone="navy">Administrador (total)</Badge> : r === 'MANAGER' ? <Badge tone="violet">Gestor</Badge> : <Badge tone="gold">Vendedor</Badge>);
+  const roleBadge = (r: string) =>
+    r === 'ADMIN' ? <Badge tone="navy">Administrador (total)</Badge> : r === 'MANAGER' ? <Badge tone="violet">Gestor</Badge> : r === 'LOGISTICS' ? <Badge tone="blue">Logística</Badge> : <Badge tone="gold">Vendedor</Badge>;
   return (
     <Card padded={false}>
       <div className="p-5 pb-3">
@@ -384,7 +385,7 @@ function UsersTab() {
           },
         ]}
       />
-      <p className="px-5 py-3 text-xs text-muted">Vendedores são gerenciados em “Vendedores”. O gestor nunca vê custos, margens, configurações nem a auditoria.</p>
+      <p className="px-5 py-3 text-xs text-muted">Vendedores são gerenciados em “Vendedores”. O gestor nunca vê custos, margens, configurações nem a auditoria. A logística só vê a separação e a entrega, sem valores.</p>
 
       <Modal open={!!form} onClose={() => setForm(null)} title={form?.id ? `Permissões de ${form.name}` : 'Novo usuário'} size="lg" footer={<><Button variant="secondary" onClick={() => setForm(null)}>Cancelar</Button><Button loading={save.isPending} onClick={() => save.mutate()}>Salvar</Button></>}>
         {form && (
@@ -394,6 +395,7 @@ function UsersTab() {
                 <Field label="Perfil" className="sm:col-span-2">
                   <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'ADMIN' })}>
                     <option value="MANAGER">Gestor (acesso restrito)</option>
+                    <option value="LOGISTICS">Logística (só separação e entrega)</option>
                     <option value="ADMIN">Administrador (acesso total)</option>
                   </Select>
                 </Field>
@@ -403,6 +405,11 @@ function UsersTab() {
                   <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
                 </Field>
               </div>
+            )}
+            {form.role === 'LOGISTICS' && !form.id && (
+              <p className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
+                A logística só vê os pedidos <strong>enviados para a logística</strong>, sem preços, e marca: Recebido na logística, Em separação, Separado, Em rota de entrega e Entregue.
+              </p>
             )}
             {form.role === 'MANAGER' && (
               <>

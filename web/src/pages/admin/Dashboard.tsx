@@ -178,7 +178,7 @@ export default function Dashboard() {
             <Stat label="Descontos concedidos" value={formatBRL(k.discountCents)} hint={k.grossCents ? `sobre ${formatBRL(k.grossCents)} bruto` : undefined} icon={<BadgePercent className="size-5" />} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat label="Em separação" value={k.picking} hint="Aguardando separação, separando e aguardando expedição" icon={<PackageSearch className="size-5" />} to="/admin/pedidos?status=AWAITING_PICKING,PICKING,AWAITING_SHIPMENT" />
+            <Stat label="Na logística" value={k.picking} hint="Com a logística: enviados, recebidos, em separação e separados" icon={<PackageSearch className="size-5" />} to="/admin/pedidos?status=AWAITING_PICKING,LOGISTICS_RECEIVED,PICKING,AWAITING_SHIPMENT" />
             <Stat label="Faturados" value={k.invoiced} hint="Nota emitida, aguardando envio" icon={<Receipt className="size-5" />} tone="gold" to="/admin/pedidos?status=INVOICED" />
             <Stat label="Em rota" value={k.shipped} hint="Enviados e em rota de entrega" icon={<Truck className="size-5" />} to="/admin/pedidos?status=SHIPPED,OUT_FOR_DELIVERY" />
             <Stat label="Concluídos no período" value={k.completed} hint="Entregues e concluídos" icon={<CheckCircle2 className="size-5" />} tone="green" />
