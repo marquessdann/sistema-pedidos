@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CheckCircle2, Circle, CircleX, Download, Eye, FileText, Mail, MessageCircle, RefreshCw, Share2 } from 'lucide-react';
-import { ORDER_STATUS_LABELS, ORDER_TIMELINE, formatDateTimeBR, whatsappLink, type OrderStatus } from '@della/shared';
+import { Check, CheckCircle2, Circle, CircleX, Download, Eye, FileText, Loader2, Mail, MessageCircle, RefreshCw, Share2 } from 'lucide-react';
+import { ORDER_PROGRESS_STEPS, ORDER_STATUS_LABELS, ORDER_TIMELINE, formatDateTimeBR, orderProgressLevel, whatsappLink, type OrderStatus } from '@della/shared';
 import { api, errorMessage, fileUrl } from '../lib/api';
 import { APPROVAL_TONE, CLIENT_TONE, ORDER_TONE, QUOTE_TONE, CLIENT_STATUS_LABELS, QUOTE_STATUS_LABELS } from '../lib/labels';
 import { Badge, Button, Card, CardTitle, Field, Input, Modal, Textarea, cx } from './ui';
@@ -310,5 +310,70 @@ function EmailModal({ open, onClose, docId, defaultMessage }: { open: boolean; o
         </Field>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Andamento simples do pedido em 4 etapas.
+ * - editable (administrador/gestor): chavinhas grandes que ligam/desligam cada etapa.
+ * - somente leitura (vendedor): as mesmas etapas acesas conforme o andamento.
+ */
+export function OrderProgressSwitches({ orderId, status, editable, onChanged }: { orderId: string; status: string; editable: boolean; onChanged?: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const level = orderProgressLevel(status);
+  if (level < 0) return null;
+  const toggle = async (step: string, on: boolean, label: string) => {
+    setBusy(step);
+    try {
+      await api(`/admin/orders/${orderId}/progress`, { body: { step, on } });
+      toast.success(on ? `Marcado: ${label}` : `Desmarcado: ${label}`);
+      onChanged?.();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <ul className="space-y-2">
+      {ORDER_PROGRESS_STEPS.map((s, i) => {
+        const on = level >= i + 1;
+        const current = level === i + 1;
+        return (
+          <li key={s.status}>
+            {editable ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={on}
+                aria-label={s.label}
+                disabled={!!busy}
+                onClick={() => void toggle(s.status, !on, s.label)}
+                className={cx(
+                  'flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors disabled:opacity-60',
+                  on ? 'border-emerald-200 bg-emerald-50' : 'border-line bg-white hover:bg-navy-50/40',
+                )}
+              >
+                <span className={cx('flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold', on ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500')}>
+                  {busy === s.status ? <Loader2 className="size-4 animate-spin" /> : on ? <Check className="size-4" /> : i + 1}
+                </span>
+                <span className="flex-1 text-base font-medium text-navy-900">{s.label}</span>
+                <span className={cx('relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors', on ? 'bg-emerald-600' : 'bg-slate-300')}>
+                  <span className={cx('absolute top-0.5 size-6 rounded-full bg-white shadow transition-all', on ? 'left-[22px]' : 'left-0.5')} />
+                </span>
+              </button>
+            ) : (
+              <div className={cx('flex items-center gap-3 rounded-xl border px-4 py-3', on ? 'border-emerald-200 bg-emerald-50' : 'border-line bg-white')}>
+                <span className={cx('flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold', on ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400')}>
+                  {on ? <Check className="size-4" /> : i + 1}
+                </span>
+                <span className={cx('flex-1 text-base', on ? 'font-semibold text-navy-900' : 'text-slate-500')}>{s.label}</span>
+                {current && <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white">Agora</span>}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

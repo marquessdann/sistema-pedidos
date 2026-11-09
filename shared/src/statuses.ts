@@ -168,3 +168,37 @@ export const CONVERSION_PRICE_POLICY_LABELS = {
   USE_CURRENT_PRICES: 'Usar os preços atuais do catálogo (com aviso e confirmação)',
 } as const;
 export type ConversionPricePolicy = keyof typeof CONVERSION_PRICE_POLICY_LABELS;
+
+/**
+ * Etapas simples de andamento (chavinhas do administrador/gestor e acompanhamento do vendedor).
+ * Cada etapa ligada implica as anteriores.
+ */
+export const ORDER_PROGRESS_STEPS = [
+  { status: 'PICKING', label: 'Em separação' },
+  { status: 'INVOICED', label: 'Faturado' },
+  { status: 'OUT_FOR_DELIVERY', label: 'Em rota de entrega' },
+  { status: 'DELIVERED', label: 'Entregue' },
+] as const satisfies readonly { status: OrderStatus; label: string }[];
+
+/** Quantas etapas de andamento o pedido já cumpriu (0 a 4); -1 = cancelado/reprovado/rascunho. */
+export function orderProgressLevel(status: string): number {
+  switch (status) {
+    case 'PICKING':
+    case 'AWAITING_SHIPMENT':
+      return 1;
+    case 'INVOICED':
+    case 'SHIPPED':
+      return 2;
+    case 'OUT_FOR_DELIVERY':
+      return 3;
+    case 'DELIVERED':
+    case 'COMPLETED':
+      return 4;
+    case 'DRAFT':
+    case 'CANCELLED':
+    case 'REJECTED':
+      return -1;
+    default:
+      return 0;
+  }
+}

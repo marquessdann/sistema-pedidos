@@ -7,7 +7,7 @@ import { ORDER_STATUS_LABELS, formatCnpj, formatDateBR, formatDateTimeBR } from 
 import { api, errorMessage, newKey } from '../../lib/api';
 import { AUDIT_LABELS } from '../../lib/labels';
 import { Alert, Button, Card, CardTitle, ErrorState, KeyValue, LinkButton, Loading, Modal, PageHeader, useConfirm } from '../../components/ui';
-import { ApprovalBadge, OrderStatusBadge, OrderTimeline, PdfActions, StatusHistoryList } from '../../components/common';
+import { ApprovalBadge, OrderProgressSwitches, OrderStatusBadge, OrderTimeline, PdfActions, StatusHistoryList } from '../../components/common';
 import { ItemsTable, TotalsCard } from '../../components/docs';
 
 export default function SellerOrderView() {
@@ -90,6 +90,7 @@ export default function SellerOrderView() {
           <div className="hidden xl:block"><PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} /></div>
           <Card>
             <CardTitle>Andamento</CardTitle>
+            <div className="mb-4"><OrderProgressSwitches orderId={o.id} status={o.status} editable={false} /></div>
             <OrderTimeline status={o.status} history={o.statusHistory} />
             <Link to={`/vendedor/processo?pedido=${o.id}`} className="mt-4 inline-block text-sm text-navy-700 hover:underline">Abrir em “Processo do pedido”</Link>
           </Card>

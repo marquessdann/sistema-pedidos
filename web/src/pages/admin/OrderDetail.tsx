@@ -8,12 +8,12 @@ import { api, errorMessage } from '../../lib/api';
 import { useRole } from '../../lib/auth';
 import { AUDIT_LABELS } from '../../lib/labels';
 import { Alert, Button, Card, CardTitle, ErrorState, Field, KeyValue, Loading, Modal, PageHeader, Select, Textarea } from '../../components/ui';
-import { ApprovalBadge, OrderStatusBadge, OrderTimeline, PdfActions } from '../../components/common';
+import { ApprovalBadge, OrderProgressSwitches, OrderStatusBadge, OrderTimeline, PdfActions } from '../../components/common';
 import { ItemsTable, TotalsCard } from '../../components/docs';
 
 export default function AdminOrderDetail() {
   const { id } = useParams();
-  const { isAdmin } = useRole();
+  const { isAdmin, can } = useRole();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['admin-order', id], queryFn: () => api<any>(`/admin/orders/${id}`) });
   const [modal, setModal] = useState<null | 'status' | 'reopen'>(null);
@@ -59,6 +59,21 @@ export default function AdminOrderDetail() {
         <div className="mb-4"><Alert tone="amber" title="Desconto aguardando decisão">Este pedido tem um desconto acima do limite do vendedor. Decida em <Link className="underline" to="/admin/aprovacoes">Aprovações</Link> (administrador ou gestor com permissão).</Alert></div>
       )}
       {o.status === 'CANCELLED' && o.cancelReason && <div className="mb-4"><Alert tone="red" title="Pedido cancelado">{o.cancelReason}</Alert></div>}
+      {o.status !== 'DRAFT' && o.status !== 'CANCELLED' && o.status !== 'REJECTED' && (
+        <Card className="mb-6">
+          <CardTitle>Andamento do pedido</CardTitle>
+          <p className="-mt-2 mb-3 text-sm text-muted">Toque para ligar ou desligar cada etapa. O vendedor vê na hora.</p>
+          <OrderProgressSwitches
+            orderId={o.id}
+            status={o.status}
+            editable={can('canUpdateOrderStatus')}
+            onChanged={() => {
+              void qc.invalidateQueries({ queryKey: ['admin-order', id] });
+              void qc.invalidateQueries({ queryKey: ['admin-orders'] });
+            }}
+          />
+        </Card>
+      )}
       <div className="mb-5 xl:hidden"><PdfActions kind="orders" id={o.id} number={o.number} clientPhone={o.client.commercialPhone} /></div>
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">

@@ -6,7 +6,7 @@ import { formatBRL, formatDateBR } from '@della/shared';
 import { api } from '../../lib/api';
 import { useDebounced } from '../../lib/hooks';
 import { Card, CardTitle, EmptyState, Input, Loading, PageHeader, cx } from '../../components/ui';
-import { OrderStatusBadge, OrderTimeline } from '../../components/common';
+import { OrderProgressSwitches, OrderStatusBadge, OrderTimeline } from '../../components/common';
 
 export default function OrderProcess() {
   const [params, setParams] = useSearchParams();
@@ -46,6 +46,7 @@ export default function OrderProcess() {
             <>
               <CardTitle actions={<Link className="text-sm text-navy-700 hover:underline" to={`/vendedor/pedidos/${order.data.id}`}>Ver pedido completo</Link>}>Pedido {order.data.number}</CardTitle>
               <p className="mb-6 text-sm text-muted">{order.data.client.legalName} • {formatBRL(order.data.totalCents)} • Status atual: <OrderStatusBadge status={order.data.status} /></p>
+              <div className="mb-6"><OrderProgressSwitches orderId={order.data.id} status={order.data.status} editable={false} /></div>
               <OrderTimeline status={order.data.status} history={order.data.statusHistory} />
               <p className="mt-6 text-xs text-muted">O andamento é atualizado pela administração. Em caso de dúvidas, contate o administrador.</p>
             </>

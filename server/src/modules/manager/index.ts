@@ -9,7 +9,7 @@ import { forbidden, notFound, unprocessable } from '../../lib/errors';
 import { pageArgs, paged, paginationSchema } from '../../lib/validation';
 import { decideApproval } from '../commercial/approvalService';
 import { listSelectClient, orderFilterSchema, orderOrderBy, orderWhere, quoteFilterSchema, quoteOrderBy, quoteWhere } from '../commercial/filters';
-import { allowedTransitions, changeOrderStatus } from '../commercial/orderService';
+import { allowedTransitions, changeOrderStatus, setOrderProgress } from '../commercial/orderService';
 import { expireQuotes } from '../commercial/quoteService';
 import { orderDetailInclude, quoteDetailInclude, serializeDoc } from '../commercial/serializers';
 import { dashboardData, sendCommissions } from '../admin/reports';
@@ -80,6 +80,14 @@ export async function managerRoutes(app: FastifyInstance) {
     const o = await prisma.order.findFirst({ where: { id, ...scopedRep(req) }, select: { id: true } });
     if (!o) throw notFound('Pedido');
     return changeOrderStatus({ ...actor(req), userId: req.user!.id }, id, b.status, b.note ?? null);
+  });
+
+  app.post('/orders/:id/progress', { preHandler: managerCan('canUpdateOrderStatus') }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const b = z.object({ step: z.enum(['PICKING', 'INVOICED', 'OUT_FOR_DELIVERY', 'DELIVERED']), on: z.boolean() }).parse(req.body);
+    const o = await prisma.order.findFirst({ where: { id, ...scopedRep(req) }, select: { id: true } });
+    if (!o) throw notFound('Pedido');
+    return setOrderProgress({ ...actor(req), userId: req.user!.id }, id, b.step, b.on);
   });
 
   app.get('/quotes', { preHandler: managerCan('canViewSales') }, async (req) => {

@@ -1,5 +1,5 @@
 import type { OrderStatus, SalesRep } from '@prisma/client';
-import { ORDER_STATUS_LABELS, ORDER_TERMINAL_STATUSES, formatBps } from '@della/shared';
+import { ORDER_PROGRESS_STEPS, ORDER_STATUS_LABELS, ORDER_TERMINAL_STATUSES, formatBps, orderProgressLevel } from '@della/shared';
 import { prisma, Prisma, type Tx } from '../../db';
 import { audit, type AuditActor } from '../../lib/audit';
 import { AppError, conflict, notFound, unprocessable } from '../../lib/errors';
@@ -259,6 +259,73 @@ export async function changeOrderStatus(
     });
     return { from: order.status, to: toStatus };
   });
+}
+
+/** Caminho mais curto entre dois status usando as transições configuradas (sem passar por cancelado/reprovado). */
+async function statusPath(from: OrderStatus, to: OrderStatus): Promise<OrderStatus[] | null> {
+  const rows = await prisma.orderStatusTransition.findMany();
+  const next = new Map<OrderStatus, OrderStatus[]>();
+  for (const r of rows) {
+    if (r.toStatus === 'CANCELLED' || r.toStatus === 'REJECTED') continue;
+    next.set(r.fromStatus, [...(next.get(r.fromStatus) ?? []), r.toStatus]);
+  }
+  const prev = new Map<OrderStatus, OrderStatus>();
+  const queue: OrderStatus[] = [from];
+  const seen = new Set<OrderStatus>([from]);
+  while (queue.length) {
+    const cur = queue.shift()!;
+    if (cur === to) break;
+    for (const n of next.get(cur) ?? []) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      prev.set(n, cur);
+      queue.push(n);
+    }
+  }
+  if (!seen.has(to)) return null;
+  const path: OrderStatus[] = [];
+  for (let s: OrderStatus | undefined = to; s && s !== from; s = prev.get(s)) path.unshift(s);
+  return path;
+}
+
+/**
+ * "Chavinhas" de andamento: ligar uma etapa (separação, faturado, em rota, entregue) avança o pedido
+ * até ela pelas transições configuradas; desligar volta para a etapa anterior.
+ */
+export async function setOrderProgress(act: AuditActor & { userId: string }, orderId: string, step: OrderStatus, on: boolean) {
+  const idx = ORDER_PROGRESS_STEPS.findIndex((s) => s.status === step);
+  if (idx < 0) throw unprocessable('Etapa inválida.');
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true, number: true, version: true } });
+  if (!order) throw notFound('Pedido');
+  const level = orderProgressLevel(order.status);
+  if (level < 0) throw unprocessable(`Pedido ${ORDER_STATUS_LABELS[order.status as OrderStatus].toLowerCase()} não tem andamento.`, 'ORDER_LOCKED');
+  const label = ORDER_PROGRESS_STEPS[idx].label;
+
+  if (on) {
+    if (level >= idx + 1) return { status: order.status };
+    const path = await statusPath(order.status as OrderStatus, step);
+    if (!path) throw unprocessable(`Não foi possível marcar "${label}" a partir de "${ORDER_STATUS_LABELS[order.status as OrderStatus]}".`, 'TRANSITION_NOT_ALLOWED');
+    for (const [i, st] of path.entries()) {
+      await changeOrderStatus(act, orderId, st, i === path.length - 1 ? `Marcado: ${label}` : null);
+    }
+    return { status: step };
+  }
+
+  // desligar: volta para a etapa anterior (ou "aprovado", se for a primeira)
+  if (level < idx + 1) return { status: order.status };
+  const back: OrderStatus = idx > 0 ? ORDER_PROGRESS_STEPS[idx - 1].status : 'APPROVED';
+  await prisma.$transaction(async (tx) => {
+    const upd = await tx.order.updateMany({
+      where: { id: orderId, status: order.status, version: order.version },
+      data: { status: back, version: { increment: 1 } },
+    });
+    if (upd.count === 0) throw conflict('O pedido foi alterado por outra pessoa. Recarregue a página.', 'STALE');
+    await tx.orderStatusHistory.create({
+      data: { orderId, fromStatus: order.status as OrderStatus, toStatus: back, userId: act.userId, note: `Desmarcado: ${label}` },
+    });
+    await audit(tx, act, 'ORDER_STATUS_REVERTED', 'order', orderId, { number: order.number, from: order.status, to: back, step: label });
+  });
+  return { status: back };
 }
 
 /** Cria um novo rascunho a partir de um pedido existente, com os preços ATUAIS do catálogo. */

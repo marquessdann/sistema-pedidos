@@ -7,7 +7,7 @@ import { notFound } from '../../lib/errors';
 import { pageArgs, paged, paginationSchema } from '../../lib/validation';
 import { decideApproval } from '../commercial/approvalService';
 import { listSelectClient, orderFilterSchema, orderOrderBy, orderWhere, quoteFilterSchema, quoteOrderBy, quoteWhere } from '../commercial/filters';
-import { allowedTransitions, changeOrderStatus } from '../commercial/orderService';
+import { allowedTransitions, changeOrderStatus, setOrderProgress } from '../commercial/orderService';
 import { allowReconversion, expireQuotes } from '../commercial/quoteService';
 import { orderDetailInclude, quoteDetailInclude, serializeDoc } from '../commercial/serializers';
 
@@ -46,6 +46,13 @@ export async function adminCommercialRoutes(app: FastifyInstance) {
     const { id } = idParam.parse(req.params);
     const b = z.object({ status: z.enum(ORDER_STATUSES), note: z.string().trim().max(1000).nullish() }).parse(req.body);
     return changeOrderStatus({ ...actor(req), userId: req.user!.id }, id, b.status, b.note ?? null);
+  });
+
+  /** Chavinhas de andamento (separação, faturado, em rota, entregue). */
+  app.post('/orders/:id/progress', async (req) => {
+    const { id } = idParam.parse(req.params);
+    const b = z.object({ step: z.enum(['PICKING', 'INVOICED', 'OUT_FOR_DELIVERY', 'DELIVERED']), on: z.boolean() }).parse(req.body);
+    return setOrderProgress({ ...actor(req), userId: req.user!.id }, id, b.step, b.on);
   });
 
   app.post('/orders/:id/reopen', async (req) => {
