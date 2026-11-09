@@ -183,8 +183,31 @@ async function seedManager() {
   console.log(`✔ Gestor "${username}" criado (vê vendas e comissões${victor ? ' do Victor' : ''}, libera produtos e clientes)`);
 }
 
+async function seedLogistics() {
+  // ---------- Logística (Antonio): só separação e entrega, sem valores ----------
+  const username = (process.env.LOGISTICS_USERNAME ?? 'antonio').trim().toLowerCase();
+  const password = process.env.ANTONIO_PASSWORD ?? process.env.LOGISTICS_PASSWORD ?? '';
+  if (await prisma.user.findUnique({ where: { username } })) {
+    console.log(`• Usuário da logística "${username}" já existe (senha não alterada)`);
+    return;
+  }
+  if (!password) {
+    console.log(`• ANTONIO_PASSWORD não definida: usuário da logística "${username}" não criado.`);
+    return;
+  }
+  if (password.length < 6) {
+    console.warn('⚠ ANTONIO_PASSWORD precisa ter pelo menos 6 caracteres: usuário da logística NÃO criado.');
+    return;
+  }
+  await prisma.user.create({
+    data: { username, name: process.env.LOGISTICS_NAME ?? 'Antonio', role: 'LOGISTICS', passwordHash: await hashPassword(password), mustChangePassword: false },
+  });
+  console.log(`✔ Usuário da logística "${username}" criado`);
+}
+
 main()
   .then(seedManager)
+  .then(seedLogistics)
   .then(seedTrainingClient)
   .catch((e) => {
     console.error(e);
