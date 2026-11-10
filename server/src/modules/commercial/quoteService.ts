@@ -1,4 +1,5 @@
 import type { QuoteStatus, SalesRep } from '@prisma/client';
+import { applyStockForStatus } from './stockService';
 import { QUOTE_OPEN_STATUSES, QUOTE_STATUS_LABELS, addDays, formatBps, type QuoteStatus as QS } from '@della/shared';
 import { prisma, Prisma, type Tx } from '../../db';
 import { audit, type AuditActor } from '../../lib/audit';
@@ -353,6 +354,7 @@ export async function convertQuote(rep: SalesRep, act: Actor, quoteId: string, i
       await tx.orderStatusHistory.create({
         data: { orderId: order.id, fromStatus: null, toStatus: 'CREATED', userId: act.userId, note: `Pedido gerado a partir do orçamento ${q.number}.` },
       });
+      await applyStockForStatus(tx, settings, { id: order.id, number, items: priced.lines }, 'CREATED', act.userId);
       await audit(tx, act, 'QUOTE_CONVERTED', 'quote', quoteId, {
         quoteNumber: q.number,
         orderId: order.id,

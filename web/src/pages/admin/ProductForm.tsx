@@ -17,6 +17,7 @@ const EMPTY = {
   description: '',
   unit: 'UN',
   unitsPerBox: null as number | null,
+  boxOnly: false,
   costCents: 0 as number | null,
   taxRefBps: null as number | null,
   priceCents: null as number | null,
@@ -51,6 +52,7 @@ export default function ProductForm() {
       description: p.description ?? '',
       unit: p.unit,
       unitsPerBox: p.unitsPerBox ?? null,
+      boxOnly: !!p.boxOnly,
       costCents: p.costCents,
       taxRefBps: p.taxRefBps || null,
       priceCents: p.priceCents,
@@ -147,6 +149,11 @@ export default function ProductForm() {
               <Field label="Unidades por caixa" error={err('unitsPerBox')} hint="Opcional. Preenchido = o vendedor pode vender por CX ou UN (preço da caixa = preço × unidades).">
                 <Input type="number" inputMode="numeric" min={2} value={f.unitsPerBox ?? ''} onChange={(e) => set('unitsPerBox', e.target.value ? parseInt(e.target.value, 10) : null)} placeholder="Ex.: 12" />
               </Field>
+              {f.unitsPerBox && f.unitsPerBox >= 2 ? (
+                <div className="sm:col-span-3">
+                  <Toggle checked={f.boxOnly} onChange={(v) => set('boxOnly', v)} label="Vender somente por caixa" description="O vendedor só vê a caixa fechada e o estoque em caixas." />
+                </div>
+              ) : null}
               {f.unitsPerBox && f.unitsPerBox >= 2 && f.priceCents ? (
                 <div className="flex items-end sm:col-span-2">
                   <p className="rounded-lg bg-gold-50 px-3 py-2 text-sm text-gold-700">Preço da caixa com {f.unitsPerBox} {f.unit}: <strong className="tabular">{formatBRL(f.priceCents * f.unitsPerBox)}</strong></p>

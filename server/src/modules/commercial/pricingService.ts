@@ -125,6 +125,9 @@ export async function priceItems(tx: Tx, opts: PriceOptions): Promise<Priced> {
 
   const factors = items.map((i) => {
     const p = products.get(i.productId)!;
+    if (i.saleUnit !== 'CX' && p.boxOnly && p.unitsPerBox && p.unitsPerBox > 1) {
+      throw unprocessable(`O produto ${p.sku} – ${p.name} é vendido somente por caixa (${p.unitsPerBox} un).`, 'BOX_ONLY');
+    }
     if (i.saleUnit !== 'CX') return 1;
     if (!p.unitsPerBox || p.unitsPerBox < 2) {
       throw unprocessable(`O produto ${p.sku} – ${p.name} não é vendido por caixa. Use a unidade (${p.unit}).`, 'NO_BOX_UNIT');

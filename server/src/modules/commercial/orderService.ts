@@ -155,6 +155,8 @@ async function saveOrderTx(tx: Tx, rep: SalesRep, act: AuditActor & { userId: st
       note: action === 'REQUEST_APPROVAL' ? `Desconto acima do limite – aprovação solicitada. ${input.discountReason ?? ''}`.trim() : 'Pedido confirmado pelo vendedor.',
     },
   });
+  // reserva o estoque já na confirmação (com bloqueio atômico se faltar saldo)
+  await applyStockForStatus(tx, settings, { id: orderId, number, items: priced.lines }, toStatus, act.userId);
   if (action === 'REQUEST_APPROVAL') {
     const approval = await tx.discountApproval.create({
       data: {

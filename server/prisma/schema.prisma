@@ -95,6 +95,7 @@ enum StockMovementType {
 }
 
 enum StockPolicy {
+  ON_CONFIRM
   ON_APPROVAL
   ON_PICKING
   ON_SHIPMENT
@@ -282,6 +283,8 @@ model Product {
   unit          String    @default("UN")
   /// Quantidade de unidades por caixa. Quando informado, o vendedor pode vender por CX ou por UN.
   unitsPerBox   Int?
+  /// Vende somente caixa fechada (o vendedor não vê a opção unidade)
+  boxOnly       Boolean   @default(false)
   /// RESTRITO: custo do produto
   costCents     Int       @default(0)
   /// RESTRITO: percentual tributário de referência (estimativa comercial, não é alíquota fiscal definitiva)

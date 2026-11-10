@@ -3,7 +3,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CloudOff,
@@ -42,6 +41,8 @@ interface Line {
   baseUnit: string;
   /** unidades por caixa (null = produto não é vendido por caixa) */
   unitsPerBox: number | null;
+  /** vende somente por caixa */
+  boxOnly?: boolean;
   saleUnit: SaleUnit;
   imageFileName: string | null;
   /** preço por unidade base */
@@ -83,6 +84,7 @@ interface CatalogProduct {
   name: string;
   unit: string;
   unitsPerBox: number | null;
+  boxOnly?: boolean;
   description: string | null;
   priceCents: number;
   imageFileName: string | null;
@@ -230,6 +232,7 @@ export default function DocWizard({ mode }: { mode: Mode }) {
       brandName: p.brand.name,
       baseUnit: p.unit,
       unitsPerBox: p.unitsPerBox,
+      boxOnly: !!p.boxOnly,
       saleUnit,
       imageFileName: p.imageFileName,
       basePriceCents: p.priceCents,
@@ -652,13 +655,28 @@ function StepProducts({ s, cfg, onAdd, onPatch, onRemove }: { s: WizardState; cf
   );
 }
 
+/** Saldo disponível para o vendedor: em caixas quando o produto é vendido só por caixa. */
+function stockInfo(p: CatalogProduct, stockEnabled: boolean) {
+  if (!stockEnabled || p.availableQty === null) return null;
+  const box = p.boxOnly && p.unitsPerBox && p.unitsPerBox > 1 ? p.unitsPerBox : null;
+  const avail = box ? Math.floor(p.availableQty / box) : p.availableQty;
+  const label = box ? `${avail} ${avail === 1 ? 'caixa disponível' : 'caixas disponíveis'}` : `${avail} ${p.unit} disponíveis`;
+  return { avail, label, box };
+}
+
 function ProductCard({ p, lines, onAdd, stockEnabled }: { p: CatalogProduct; lines: Line[]; onAdd: (p: CatalogProduct, q: number, u: SaleUnit) => void; stockEnabled: boolean }) {
   const [qty, setQty] = useState(1);
-  const [unit, setUnit] = useState<SaleUnit>('UN');
-  const unavailable = stockEnabled && p.availableQty !== null && p.availableQty <= 0;
-  const price = p.priceCents * (unit === 'CX' && p.unitsPerBox ? p.unitsPerBox : 1);
+  const boxOnly = !!p.boxOnly && !!p.unitsPerBox && p.unitsPerBox > 1;
+  const [unit, setUnit] = useState<SaleUnit>(boxOnly ? 'CX' : 'UN');
+  const st = stockInfo(p, stockEnabled);
+  // quanto ainda dá para adicionar (descontando o que já está no carrinho), na unidade escolhida
+  const inCartBase = lines.reduce((a, l) => a + l.quantity * (l.saleUnit === 'CX' && l.unitsPerBox ? l.unitsPerBox : 1), 0);
+  const factor = unit === 'CX' && p.unitsPerBox ? p.unitsPerBox : 1;
+  const maxAdd = st ? Math.max(0, Math.floor(((p.availableQty ?? 0) - inCartBase) / factor)) : Infinity;
+  const unavailable = !!st && maxAdd <= 0;
+  const price = p.priceCents * factor;
   return (
-    <div className={cx('rounded-2xl border bg-white p-3.5 shadow-[0_1px_2px_rgba(15,35,65,0.04)]', lines.length ? 'border-gold-300 ring-1 ring-gold-200' : 'border-line')}>
+    <div className={cx('rounded-2xl border bg-white p-3.5 shadow-[0_1px_2px_rgba(15,35,65,0.04)]', lines.length ? 'border-gold-300 ring-1 ring-gold-200' : 'border-line', unavailable && !lines.length && 'opacity-70')}>
       <div className="flex gap-3">
         <ProductThumb fileName={p.imageFileName} alt={p.name} />
         <div className="min-w-0 flex-1">
@@ -668,24 +686,29 @@ function ProductCard({ p, lines, onAdd, stockEnabled }: { p: CatalogProduct; lin
             {formatBRL(price)}
             <span className="text-xs font-normal text-muted"> / {unit === 'CX' ? `caixa (${p.unitsPerBox} ${p.unit})` : p.unit}</span>
           </p>
-          {stockEnabled && p.availableQty !== null && (
-            <p className={cx('text-xs', unavailable ? 'text-red-600' : 'text-muted')}>{unavailable ? 'Sem saldo em estoque' : `${p.availableQty} ${p.unit} disponíveis`}</p>
-          )}
+          {st && <p className={cx('text-xs font-medium', st.avail <= 0 ? 'text-red-600' : 'text-emerald-700')}>{st.avail <= 0 ? 'Sem estoque' : st.label}</p>}
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <UnitToggle value={unit} onChange={setUnit} baseUnit={p.unit} unitsPerBox={p.unitsPerBox} />
-        <Stepper value={qty} onChange={setQty} />
+        {boxOnly ? (
+          <span className="inline-flex h-10 items-center rounded-xl bg-slate-100 px-3 text-sm font-semibold text-navy-800">CX {p.unitsPerBox}</span>
+        ) : (
+          <UnitToggle value={unit} onChange={(u) => { setUnit(u); setQty(1); }} baseUnit={p.unit} unitsPerBox={p.unitsPerBox} />
+        )}
+        <Stepper value={Math.min(qty, Number.isFinite(maxAdd) ? Math.max(1, maxAdd) : qty)} onChange={(v) => setQty(Number.isFinite(maxAdd) ? Math.min(v, Math.max(1, maxAdd)) : v)} />
         <Button
           className="h-10 min-w-28 flex-1"
           icon={<Plus className="size-4" />}
+          disabled={unavailable}
           onClick={() => {
-            onAdd(p, qty, unit);
+            const q = Number.isFinite(maxAdd) ? Math.min(qty, maxAdd) : qty;
+            if (q <= 0) return;
+            onAdd(p, q, unit);
             setQty(1);
           }}
           aria-label={`Adicionar ${p.name}`}
         >
-          Adicionar
+          {unavailable ? (lines.length ? 'Tudo no carrinho' : 'Sem estoque') : 'Adicionar'}
         </Button>
       </div>
       {lines.length > 0 && (
@@ -693,7 +716,6 @@ function ProductCard({ p, lines, onAdd, stockEnabled }: { p: CatalogProduct; lin
           <CheckCircle2 className="size-3.5" /> No carrinho: {lines.map((l) => `${l.quantity} ${unitLabel(l)}`).join(' + ')}
         </p>
       )}
-      {unavailable && <p className="mt-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="size-3" /> Produto sem saldo — confirme com a empresa.</p>}
     </div>
   );
 }
@@ -722,7 +744,11 @@ function CartList({ items, calc, onPatch, onRemove, compact, allowItemDiscount }
                   </button>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <UnitToggle value={l.saleUnit} onChange={(u) => onPatch(l, { saleUnit: u })} baseUnit={l.baseUnit} unitsPerBox={l.unitsPerBox} />
+                  {l.boxOnly ? (
+                    <span className="inline-flex h-10 items-center rounded-xl bg-slate-100 px-3 text-sm font-semibold text-navy-800">CX {l.unitsPerBox}</span>
+                  ) : (
+                    <UnitToggle value={l.saleUnit} onChange={(u) => onPatch(l, { saleUnit: u })} baseUnit={l.baseUnit} unitsPerBox={l.unitsPerBox} />
+                  )}
                   <Stepper value={l.quantity} onChange={(v) => onPatch(l, { quantity: v })} />
                   {allowItemDiscount && (
                     <div className="w-24">

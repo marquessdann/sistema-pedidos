@@ -79,8 +79,14 @@ export async function applyStockForStatus(
   userId: string,
 ) {
   if (!settings.stockEnabled) return;
-  const reserveAt: OrderStatus | null =
-    settings.stockPolicy === 'ON_APPROVAL' ? 'APPROVED' : settings.stockPolicy === 'ON_PICKING' ? 'PICKING' : null;
+  const reserveAt: OrderStatus[] =
+    settings.stockPolicy === 'ON_CONFIRM'
+      ? ['CREATED', 'PENDING_APPROVAL', 'APPROVED']
+      : settings.stockPolicy === 'ON_APPROVAL'
+        ? ['APPROVED']
+        : settings.stockPolicy === 'ON_PICKING'
+          ? ['PICKING']
+          : [];
   const enforce = settings.blockOnInsufficientStock;
   const ref = `Pedido ${order.number ?? order.id}`;
 
@@ -89,7 +95,7 @@ export async function applyStockForStatus(
   for (const it of order.items) perProduct.set(it.productId, (perProduct.get(it.productId) ?? 0) + it.quantity * (it.unitsPerSaleUnit ?? 1));
   for (const item of [...perProduct.entries()].map(([productId, quantity]) => ({ productId, quantity }))) {
     const state = await orderProductState(tx, order.id, item.productId);
-    if (toStatus === reserveAt && state.reserved === 0 && state.out === 0) {
+    if (reserveAt.includes(toStatus) && state.reserved === 0 && state.out === 0) {
       await moveStock(tx, { productId: item.productId, type: 'RESERVE', stockDelta: 0, reservedDelta: item.quantity, orderId: order.id, reason: ref, userId, enforce });
     }
     if (ORDER_DISPATCHED_STATUSES.includes(toStatus) && state.out === 0) {

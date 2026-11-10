@@ -30,6 +30,7 @@ const productSchema = z.object({
     .max(100_000)
     .nullish()
     .transform((v) => v ?? null),
+  boxOnly: z.boolean().default(false),
   costCents: centsSchema.default(0),
   taxRefBps: bpsSchema.default(0),
   priceCents: centsSchema,

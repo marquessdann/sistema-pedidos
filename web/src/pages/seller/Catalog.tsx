@@ -40,9 +40,17 @@ export default function Catalog() {
                       <p className="font-medium text-navy-900">{p.name}</p>
                       <p className="text-xs text-muted">{p.sku}{p.category ? ` • ${p.category.name}` : ''}</p>
                       {p.description && <p className="mt-1 line-clamp-2 text-xs text-muted">{p.description}</p>}
-                      <p className="mt-2 text-lg font-semibold tabular text-navy-900">{formatBRL(p.priceCents)} <span className="text-xs font-normal text-muted">/{p.unit}</span></p>
+                      {p.boxOnly && p.unitsPerBox > 1 ? (
+                        <p className="mt-2 text-lg font-semibold tabular text-navy-900">{formatBRL(p.priceCents * p.unitsPerBox)} <span className="text-xs font-normal text-muted">/caixa ({p.unitsPerBox} {p.unit})</span></p>
+                      ) : (
+                        <p className="mt-2 text-lg font-semibold tabular text-navy-900">{formatBRL(p.priceCents)} <span className="text-xs font-normal text-muted">/{p.unit}</span></p>
+                      )}
                       {me?.rep?.canViewCost && p.costCents != null && <p className="text-xs text-muted">Custo: {formatBRL(p.costCents)}</p>}
-                      {cat.data.stockEnabled && p.availableQty !== null && <p className={cx('text-xs', p.availableQty <= 0 ? 'text-red-600' : 'text-muted')}>{p.availableQty <= 0 ? 'Indisponível' : `${p.availableQty} disponíveis`}</p>}
+                      {cat.data.stockEnabled && p.availableQty !== null && (() => {
+                        const box = p.boxOnly && p.unitsPerBox > 1 ? p.unitsPerBox : 0;
+                        const n = box ? Math.floor(p.availableQty / box) : p.availableQty;
+                        return <p className={cx('text-xs font-medium', n <= 0 ? 'text-red-600' : 'text-emerald-700')}>{n <= 0 ? 'Sem estoque' : box ? `${n} ${n === 1 ? 'caixa disponível' : 'caixas disponíveis'}` : `${n} disponíveis`}</p>;
+                      })()}
                     </div>
                   </Card>
                 ))}

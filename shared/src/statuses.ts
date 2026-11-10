@@ -176,6 +176,7 @@ export const STOCK_MOVEMENT_LABELS = {
 export type StockMovementType = keyof typeof STOCK_MOVEMENT_LABELS;
 
 export const STOCK_POLICY_LABELS = {
+  ON_CONFIRM: 'Reservar quando o vendedor confirma o pedido, baixar no envio (recomendado)',
   ON_APPROVAL: 'Reservar na aprovação do pedido, baixar no envio',
   ON_PICKING: 'Reservar ao iniciar a separação, baixar no envio',
   ON_SHIPMENT: 'Baixar somente no envio (sem reserva)',

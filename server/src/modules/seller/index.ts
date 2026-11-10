@@ -154,6 +154,7 @@ function catalogSelect(canViewCost: boolean) {
     name: true,
     unit: true,
     unitsPerBox: true,
+    boxOnly: true,
     description: true,
     priceCents: true,
     stockQty: true,

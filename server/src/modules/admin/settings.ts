@@ -39,7 +39,7 @@ const settingsSchema = z.object({
   allowSellerFreight: z.boolean(),
   conversionPricePolicy: z.enum(['KEEP_QUOTE_PRICES', 'USE_CURRENT_PRICES']),
   stockEnabled: z.boolean(),
-  stockPolicy: z.enum(['ON_APPROVAL', 'ON_PICKING', 'ON_SHIPMENT']),
+  stockPolicy: z.enum(['ON_CONFIRM', 'ON_APPROVAL', 'ON_PICKING', 'ON_SHIPMENT']),
   blockOnInsufficientStock: z.boolean(),
   orderNumberPrefix: z.string().trim().toUpperCase().regex(/^[A-Z]{2,6}$/, 'Prefixo: 2 a 6 letras.'),
   quoteNumberPrefix: z.string().trim().toUpperCase().regex(/^[A-Z]{2,6}$/, 'Prefixo: 2 a 6 letras.'),
