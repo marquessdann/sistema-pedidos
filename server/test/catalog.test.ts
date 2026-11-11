@@ -192,3 +192,19 @@ describe('Cadastro de produtos', () => {
     expect(r.body.active).toBe(false);
   });
 });
+
+describe('Exportar planilha de produtos', () => {
+  it('admin baixa CSV com SKU, preço e estoque; vendedor não', async () => {
+    const fx = await seedBase();
+    const a = await loginAdmin(app);
+    const r = await a.get('/api/admin/products-export');
+    expect(r.status).toBe(200);
+    expect(String(r.headers['content-type'])).toContain('text/csv');
+    expect(r.body).toContain('SKU;Produto;Marca');
+    expect(r.body).toContain('A-001;Produto 001;Marca A');
+    expect(r.body).toContain('100,00');
+    const v = await loginVictor(app);
+    expect((await v.get('/api/admin/products-export')).status).toBe(403);
+    expect(fx.p1).toBeTruthy();
+  });
+});

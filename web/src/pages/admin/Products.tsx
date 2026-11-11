@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, Plus, Power, Search } from 'lucide-react';
+import { Copy, FileSpreadsheet, Plus, Power, Search } from 'lucide-react';
 import { formatBRL, formatBps } from '@della/shared';
-import { api, errorMessage } from '../../lib/api';
+import { api, apiHref, errorMessage } from '../../lib/api';
 import { useRole } from '../../lib/auth';
 import { useDebounced } from '../../lib/hooks';
 import { Badge, Button, Card, DataTable, ErrorState, Input, LinkButton, PageHeader, Pagination, Select, cx } from '../../components/ui';
@@ -64,7 +64,16 @@ export default function Products() {
       <PageHeader
         title={isAdmin ? 'Produtos' : 'Liberar produtos'}
         subtitle={isAdmin ? 'Catálogo, preços, custos e tributos de referência' : 'Ative ou inative produtos no catálogo dos vendedores'}
-        actions={isAdmin && <LinkButton to="/admin/produtos/novo" variant="primary" icon={<Plus className="size-4" />}>Novo produto</LinkButton>}
+        actions={
+          isAdmin && (
+            <>
+              <a href={apiHref('/admin/products-export')} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-navy-900 shadow-xs hover:bg-navy-50 sm:h-10">
+                <FileSpreadsheet className="size-4" /> Exportar planilha
+              </a>
+              <LinkButton to="/admin/produtos/novo" variant="primary" icon={<Plus className="size-4" />}>Novo produto</LinkButton>
+            </>
+          )
+        }
       />
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
         <button onClick={() => { setBrand(''); setPage(1); }} className={cx('whitespace-nowrap rounded-full border px-3 py-1.5 text-sm', !brandId ? 'border-navy-900 bg-navy-900 text-white' : 'border-line bg-white text-ink hover:bg-navy-50')}>

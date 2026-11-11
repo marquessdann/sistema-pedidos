@@ -6,6 +6,7 @@ import { actor } from '../../lib/auth';
 import { audit, diff } from '../../lib/audit';
 import { AppError, conflict, notFound, unprocessable } from '../../lib/errors';
 import { copyFile, removeFile, saveImage } from '../../lib/storage';
+import { csvValue } from './reports';
 import { bpsSchema, centsSchema, optText, pageArgs, paged, paginationSchema, reqText } from '../../lib/validation';
 
 const idParam = z.object({ id: z.string().uuid() });
@@ -159,6 +160,33 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     });
     if (!p || p.deletedAt) throw notFound('Produto');
     return withMargin(p);
+  });
+
+  /** Planilha de produtos (CSV, abre no Excel): SKU, nome, marca, categoria, preço por unidade e por caixa, estoque e status. */
+  app.get('/products-export', async (_req, reply) => {
+    const ps = await prisma.product.findMany({
+      where: { deletedAt: null },
+      orderBy: [{ brand: { name: 'asc' } }, { name: 'asc' }],
+      include: { brand: { select: { name: true } }, category: { select: { name: true } } },
+    });
+    const cols: [string, 'text' | 'money' | 'number'][] = [
+      ['SKU', 'text'], ['Produto', 'text'], ['Marca', 'text'], ['Categoria', 'text'], ['Unidade', 'text'],
+      ['Preço unidade (R$)', 'money'], ['Unidades por caixa', 'number'], ['Preço caixa (R$)', 'money'], ['Vende só por caixa', 'text'],
+      ['Estoque (un)', 'number'], ['Reservado (un)', 'number'], ['Disponível (un)', 'number'], ['Ativo', 'text'],
+    ];
+    const lines = [cols.map(([c]) => csvValue(c, 'text')).join(';')];
+    for (const p of ps) {
+      const row = [
+        p.sku, p.name, p.brand.name, p.category?.name ?? '', p.unit,
+        p.priceCents, p.unitsPerBox ?? '', p.unitsPerBox ? p.priceCents * p.unitsPerBox : '', p.boxOnly ? 'Sim' : 'Não',
+        p.stockQty, p.reservedQty, p.stockQty - p.reservedQty, p.active ? 'Sim' : 'Não',
+      ];
+      lines.push(row.map((v, i) => csvValue(v === '' ? null : v, cols[i][1] === 'number' ? 'text' : cols[i][1])).join(';'));
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    reply.header('Content-Type', 'text/csv; charset=utf-8');
+    reply.header('Content-Disposition', `attachment; filename="produtos-della-${today}.csv"`);
+    return reply.send('\uFEFF' + lines.join('\r\n'));
   });
 
   app.get('/products-check-sku', async (req) => {
