@@ -94,6 +94,13 @@ describe('Relatórios e dashboard', () => {
     expect(csv.body).toContain('Pedido;Data;Cliente');
     expect(csv.body).toContain('190,00');
 
+    for (const k of ['summary', 'orders', 'by-rep', 'by-client', 'top-products', 'quotes', 'quote-conversion', 'discounts', 'pending', 'cancelled']) {
+      const pdf = await admin.get(`/api/admin/reports/${k}?format=pdf&salesRepId=${fx.victorRepId}`);
+      expect(pdf.status, k).toBe(200);
+      expect(String(pdf.headers['content-type'])).toContain('application/pdf');
+      expect(pdf.raw.subarray(0, 4).toString()).toBe('%PDF');
+    }
+
     const dash = await admin.get('/api/admin/dashboard');
     expect(dash.status).toBe(200);
     expect(dash.body.kpis.ordersToday).toBe(2);

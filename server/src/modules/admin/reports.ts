@@ -15,6 +15,9 @@ import {
 import { prisma, Prisma } from '../../db';
 import { getSettings, today } from '../../lib/settings';
 import { isoDate } from '../../lib/validation';
+import { getFile } from '../../lib/storage';
+import { DEFAULT_LOGO_PNG } from '../../assets/defaultLogo';
+import { renderReportPdf } from './reportPdf';
 
 const filterSchema = z.object({
   from: isoDate.optional(),
@@ -333,12 +336,43 @@ export function csvValue(v: unknown, type: ColType): string {
   return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+async function reportPdf(report: Report, f: Filter) {
+  const s = await getSettings();
+  const logo = (s.logoFileName ? (await getFile('company', s.logoFileName).catch(() => null))?.data : null) ?? DEFAULT_LOGO_PNG;
+  const filters: string[] = [];
+  if (f.salesRepId) {
+    const rep = await prisma.salesRep.findUnique({ where: { id: f.salesRepId }, select: { fullName: true } });
+    if (rep) filters.push(`Representante: ${rep.fullName}`);
+  }
+  if (f.clientId) {
+    const c = await prisma.client.findUnique({ where: { id: f.clientId }, select: { legalName: true } });
+    if (c) filters.push(`Cliente: ${c.legalName}`);
+  }
+  if (f.status?.length) filters.push(`Status: ${f.status.map((x) => ORDER_STATUS_LABELS[x]).join(', ')}`);
+  const generatedAt = new Intl.DateTimeFormat('pt-BR', { timeZone: s.timezone, dateStyle: 'short', timeStyle: 'short' }).format(new Date());
+  const br = (d: string) => d.split('-').reverse().join('/');
+  return renderReportPdf({
+    ...report,
+    period: `${br(f.from)} a ${br(f.to)}`,
+    filters,
+    generatedAt,
+    companyName: s.legalName || s.companyName,
+    logo: logo ? Buffer.from(logo) : null,
+  });
+}
+
 export async function adminReportRoutes(app: FastifyInstance) {
   app.get('/reports/:kind', async (req, reply) => {
     const { kind } = z.object({ kind: z.string().max(30) }).parse(req.params);
-    const { format } = z.object({ format: z.enum(['json', 'csv']).default('json') }).parse(req.query);
+    const { format } = z.object({ format: z.enum(['json', 'csv', 'pdf']).default('json') }).parse(req.query);
     const f = await withDefaults(req.query);
     const report = await buildReport(kind, f);
+    if (format === 'pdf') {
+      const pdf = await reportPdf(report, f);
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', `attachment; filename="relatorio-${kind}-${f.from}-a-${f.to}.pdf"`);
+      return reply.send(pdf);
+    }
     if (format === 'csv') {
       const lines = [report.columns.map((c) => csvValue(c.label, 'text')).join(';')];
       for (const r of report.rows) lines.push(report.columns.map((c) => csvValue(r[c.key], c.type)).join(';'));

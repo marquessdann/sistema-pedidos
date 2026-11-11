@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Download } from 'lucide-react';
+import { Download, FileText } from 'lucide-react';
 import { ORDER_STATUS_LABELS, formatBRL, formatBps, formatDateBR } from '@della/shared';
 import { api, qs } from '../../lib/api';
 import { Card, ErrorState, Field, Input, Loading, PageHeader, Select, cx } from '../../components/ui';
@@ -36,7 +36,7 @@ export default function Reports() {
   const statusApplies = ['orders', 'by-rep', 'by-client', 'top-products', 'discounts'].includes(kind);
   return (
     <>
-      <PageHeader title="Relatórios" subtitle="Filtre por período, cliente, representante e status; exporte em CSV (abre no Excel)" />
+      <PageHeader title="Relatórios" subtitle="Filtre por período, cliente, representante e status; exporte em PDF ou planilha (CSV, abre no Excel)" />
       <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
         <Card padded={false} className="h-fit p-2">
           <nav className="flex gap-1 overflow-x-auto lg:flex-col">
@@ -59,9 +59,12 @@ export default function Reports() {
               <Field label="Status">
                 <Select value={f.status} disabled={!statusApplies} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">Padrão do relatório</option>{Object.entries(ORDER_STATUS_LABELS).filter(([s]) => s !== 'DRAFT').map(([s, l]) => <option key={s} value={s}>{l}</option>)}</Select>
               </Field>
-              <div className="flex items-end">
-                <a href={`/api/admin/reports/${kind}${qs({ ...f, format: 'csv' })}`} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-gold-500 px-4 text-sm font-medium text-white hover:bg-gold-600">
-                  <Download className="size-4" /> Exportar CSV
+              <div className="flex items-end gap-2">
+                <a href={`/api/admin/reports/${kind}${qs({ ...f, format: 'pdf' })}`} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-navy-900 px-3 text-sm font-medium text-white hover:bg-navy-800">
+                  <FileText className="size-4" /> PDF
+                </a>
+                <a href={`/api/admin/reports/${kind}${qs({ ...f, format: 'csv' })}`} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-gold-500 px-3 text-sm font-medium text-white hover:bg-gold-600">
+                  <Download className="size-4" /> Planilha
                 </a>
               </div>
             </div>
